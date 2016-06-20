@@ -330,6 +330,7 @@ public class SpringOpenTTP extends AbstractHandlerBehaviour
                     if (!buckets.isEmpty()) {
                         final GroupKey key = new DefaultGroupKey(
                                                      appKryo.serialize(nextObjective.id()));
+                        log.info("SpringOpenTTP is being used");
                         GroupDescription groupDescription = new DefaultGroupDescription(
                                                   deviceId,
                                                   GroupDescription.Type.SELECT,

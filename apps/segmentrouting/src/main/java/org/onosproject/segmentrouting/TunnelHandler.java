@@ -206,6 +206,7 @@ public class TunnelHandler {
         } else if (groupHandlerMap.get(deviceId) == null) {
             log.warn("group handler not found for {}", deviceId);
             return groupError;
+
         }
         Set<DeviceId> deviceIds = new HashSet<>();
         int sid = tunnel.labelIds().get(1);

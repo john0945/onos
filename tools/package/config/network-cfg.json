@@ -1,0 +1,141 @@
+{
+    "ports" : {
+    "of:0000000000000001/1" : {
+        "interfaces" : [
+        {
+            "ips" : [ "10.0.1.254/24" ]
+        }
+        ]
+    },
+    "of:0000000000000001/2" : {
+        "interfaces" : [
+        {
+            "ips" : [ "10.0.1.254/24" ]
+        }
+        ]
+    },
+    "of:0000000000000002/1" : {
+        "interfaces" : [
+        {
+            "ips" : [ "10.0.2.254/24" ]
+        }
+        ]
+    },
+    "of:0000000000000002/" : {
+        "interfaces" : [
+        {
+            "ips" : [ "10.0.2.254/24" ]
+        }
+        ]
+    }
+    },
+    "devices" : {
+        "of:0000000000000001" : {
+            "segmentrouting" : {
+                "name" : "Edge-1",
+                "nodeSid" : 101,
+                "routerIp" : "10.0.1.254",
+                "routerMac" : "10:00:00:00:00:01",
+                "isEdgeRouter" : true,
+                "adjacencySids" : []
+            }
+        },
+        "of:0000000000000002" : {
+            "segmentrouting" : {
+                "name" : "Edge-2",
+                "nodeSid" : 102,
+                "routerIp" : "10.0.2.254",
+                "routerMac" : "10:00:00:00:00:02",
+                "isEdgeRouter" : true,
+                "adjacencySids" : []
+            }
+        },
+        "of:0000000000000101" : {
+            "segmentrouting" : {
+                "name" : "Core-101",
+                "nodeSid" : 103,
+                "routerIp" : "192.168.0.11",
+                "routerMac" : "10:00:00:00:01:01",
+                "isEdgeRouter" : false,
+                "adjacencySids" : []
+            }
+        },
+        "of:0000000000000102" : {
+            "segmentrouting" : {
+                "name" : "Core-102",
+                "nodeSid" : 104,
+                "routerIp" : "192.168.0.12",
+                "routerMac" : "10:00:00:00:01:02",
+                "isEdgeRouter" : false,
+                "adjacencySids" : []
+            }
+        },
+        "of:0000000000000201" : {
+            "segmentrouting" : {
+                "name" : "Core-201",
+                "nodeSid" : 105,
+                "routerIp" : "192.168.0.21",
+                "routerMac" : "10:00:00:00:02:01",
+                "isEdgeRouter" : false,
+                "adjacencySids" : []
+            }
+        },
+        "of:0000000000000202" : {
+            "segmentrouting" : {
+                "name" : "Core-202",
+                "nodeSid" : 106,
+                "routerIp" : "192.168.0.22",
+                "routerMac" : "10:00:00:00:02:02",
+                "isEdgeRouter" : false,
+                "adjacencySids" : []
+            }
+        },
+        "of:0000000000000301" : {
+            "segmentrouting" : {
+                "name" : "Core-301",
+                "nodeSid" : 107,
+                "routerIp" : "192.168.0.31",
+                "routerMac" : "10:00:00:00:03:01",
+                "isEdgeRouter" : false,
+                "adjacencySids" : []
+            }
+        },
+        "of:0000000000000302" : {
+            "segmentrouting" : {
+                "name" : "Core-302",
+                "nodeSid" : 108,
+                "routerIp" : "192.168.0.32",
+                "routerMac" : "10:00:00:00:03:02",
+                "isEdgeRouter" : false,
+                "adjacencySids" : []
+            }
+        }
+    },
+    "hosts" : {
+        "00:00:00:00:00:01/-1" : {
+            "basic": {
+                "ips": ["10.0.1.1"],
+                "location": "of:0000000000000001/1"
+            }
+        },
+        "00:00:00:00:00:02/-1" : {
+            "basic": {
+                "ips": ["10.0.1.2"],
+                "location": "of:0000000000000001/2"
+            }
+        },
+        "00:00:00:00:00:03/-1" : {
+            "basic": {
+                "ips": ["10.0.2.1"],
+                "location": "of:0000000000000002/1"
+            }
+        },
+        "00:00:00:00:00:04/-1" : {
+            "basic": {
+                "ips": ["10.0.2.2"],
+                "location": "of:0000000000000002/2"
+            }
+        }
+    }
+}
+
