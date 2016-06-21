@@ -16,6 +16,8 @@
 
 package org.onosproject.segmentrouting;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -30,6 +32,8 @@ public class DefaultTunnel implements Tunnel {
     private int groupId;
     private boolean allowedToRemoveGroup;
 
+    private List<Integer> stitchedGroupIDs;
+    private HashMap<Integer, Boolean> allowedToRemoveStitchedGroup;
     /**
      * Creates a Tunnel reference.
      *
@@ -42,6 +46,8 @@ public class DefaultTunnel implements Tunnel {
         //TODO: need to register the class in Kryo for this
         //this.labelIds = Collections.unmodifiableList(labelIds);
         this.groupId = -1;
+        this.stitchedGroupIDs = new ArrayList<>();
+        this.allowedToRemoveStitchedGroup = new HashMap<>();
     }
 
     /**
@@ -106,4 +112,25 @@ public class DefaultTunnel implements Tunnel {
     public void allowToRemoveGroup(boolean b) {
         this.allowedToRemoveGroup = b;
     }
+
+    //added for tunnels owning multiple groups
+    @Override
+    public List<Integer> stitchedGroupIDs(){ return this.stitchedGroupIDs; }
+
+    @Override
+    public void addStitchedGroupIDs(int stitchedGroupID) {
+        this.stitchedGroupIDs.add(stitchedGroupID); }
+
+    @Override
+    public boolean isAllowedToRemoveStitchedGroup(int group) {
+        return this.allowedToRemoveStitchedGroup.get(group);
+    }
+
+    @Override
+    public void allowToRemoveStitchedGroup(int group, boolean b) {
+        this.allowedToRemoveStitchedGroup.put(group, b);
+    }
+
+
+
 }

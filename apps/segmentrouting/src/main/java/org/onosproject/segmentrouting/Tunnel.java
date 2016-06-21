@@ -64,4 +64,14 @@ public interface Tunnel {
      * @return true if allowed, false otherwise
      */
     boolean isAllowedToRemoveGroup();
-}
+
+    List<Integer> stitchedGroupIDs();
+
+    void addStitchedGroupIDs(int stitchedGroupID);
+
+    public boolean isAllowedToRemoveStitchedGroup(int group);
+
+    public void allowToRemoveStitchedGroup(int group, boolean b);
+
+
+    }
