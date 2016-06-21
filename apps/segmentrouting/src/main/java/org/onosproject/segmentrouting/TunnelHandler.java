@@ -13,6 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+
+Notes for porting of multiple label support from spring-open project.
+This file is called SegmentRoutingTennel in spring-open.
+
+DeviceID replaces Dpid
+
+ */
 package org.onosproject.segmentrouting;
 
 import org.onosproject.net.DeviceId;
@@ -42,6 +51,9 @@ public class TunnelHandler {
     private final EventuallyConsistentMap<String, Tunnel> tunnelStore;
     private Map<DeviceId, DefaultGroupHandler> groupHandlerMap;
     private LinkService linkService;
+
+    private List<TunnelRouteInfo> routes;
+   // private final int max_num_labels = 3;
 
     /**
      * Result of tunnel creation or removal.
@@ -127,16 +139,23 @@ public class TunnelHandler {
             return Result.TUNNEL_EXISTS;
         }
 
-        int groupId = createGroupsForTunnel(tunnel);
-        if (groupId < 0) {
-            log.error("Failed to create groups for the tunnel");
-            return Result.INTERNAL_ERROR;
+        if (tunnel.labelIds().size() == 3) {
+            int groupId = createGroupsForTunnel(tunnel);
+            if (groupId < 0) {
+                log.error("Failed to create groups for the tunnel");
+                return Result.INTERNAL_ERROR;
+            }
+
+            tunnel.setGroupId(groupId);
+            tunnelStore.put(tunnel.id(), tunnel);
+
+            return Result.SUCCESS;
+
+        } else {
+            createStitchedGroupsForTunnel(tunnel);
+            return Result.SUCCESS;
+
         }
-
-        tunnel.setGroupId(groupId);
-        tunnelStore.put(tunnel.id(), tunnel);
-
-        return Result.SUCCESS;
     }
 
     /**
@@ -194,6 +213,56 @@ public class TunnelHandler {
         return tunnels;
     }
 
+    private int createStitchedGroupsForTunnel(Tunnel tunnel) {
+
+        List<String> ids = new ArrayList<String>();
+        for (Integer label : tunnel.labelIds()) {
+            ids.add(label.toString());
+        }
+        List<TunnelRouteInfo> stitchingRule = getStitchingRule(ids);
+        if (stitchingRule == null) {
+            log.error("Failed to stitch tunnel");
+         }
+
+        for (TunnelRouteInfo route: stitchingRule) {
+
+            DeviceId deviceId = config.getDeviceId(Integer.parseInt(route.getsrcSwDeviceId()));
+            if (deviceId == null) {
+                log.warn("No device found for SID {}", tunnel.labelIds().get(0));
+            } else if (groupHandlerMap.get(deviceId) == null) {
+                log.warn("group handler not found for {}", deviceId);
+            }
+
+            Set<DeviceId> deviceIds = new HashSet<>();
+            //int sid = tunnel.labelIds().get(1);
+            deviceIds.add(config.getDeviceId(Integer.parseInt(route.getRoute().get(0))));
+
+
+            NeighborSet ns = new NeighborSet(deviceIds, Integer.parseInt(route.getRoute().get(1)));
+
+            int groupId = -1;
+
+            if (groupHandlerMap.get(deviceId).hasNextObjectiveId(ns)) {
+                tunnel.allowToRemoveGroup(false);
+            } else {
+                tunnel.allowToRemoveGroup(true);
+            }
+
+            if (groupHandlerMap.get(deviceId).getNextObjectiveId(ns, null) < 0) {
+                log.debug("Failed to create a tunnel at driver.");
+                return -1;
+            }
+            route.setGroupId(groupId);
+
+
+
+
+        }
+
+
+        return 1;
+    }
+
     private int createGroupsForTunnel(Tunnel tunnel) {
 
         Set<Integer> portNumbers;
@@ -232,8 +301,155 @@ public class TunnelHandler {
         } else {
             tunnel.allowToRemoveGroup(true);
         }
-
+//this line is the one that will create the groups
         return groupHandlerMap.get(deviceId).getNextObjectiveId(ns, null);
+    }
+
+    /**
+     * Split the nodes IDs into multiple tunnel if Segment Stitching is required.
+     * We assume that the first node ID is the one of source router, and the last
+     * node ID is that of the destination router.
+     *
+     * @param route list of node IDs
+     * @return List of the TunnelRoutInfo
+     */
+    private List<TunnelRouteInfo> getStitchingRule(List<String> route) {
+
+        if (route.isEmpty() || route.size() < 3) {
+            return null;
+        }
+
+        List<TunnelRouteInfo> rules = new ArrayList<TunnelRouteInfo>();
+
+        //this takes the SID (string), converts it to an int, getDeviceID
+        // then returns the DeviceID, which is then converted to a string
+        String srcdeviceId = config.getDeviceId(Integer.parseInt(route.get(0))).toString();
+
+
+        int i = 0;
+        TunnelRouteInfo routeInfo = new TunnelRouteInfo();
+        boolean checkNeighbor = false;
+
+        for (String nodeId: route) {
+            // The first node ID is always the source router.
+            if (i == 0) {
+                if (srcdeviceId == null) {
+                    srcdeviceId = config.getDeviceId(Integer.parseInt(route.get(0))).toString();
+                }
+                routeInfo.setSrcDeviceId(srcdeviceId);
+                checkNeighbor = true;
+                i++;
+            } else if (i == 1) {
+// if this is the first node ID to put the label stack.
+                if (checkNeighbor) {
+//                    List<DeviceId> fwdSws = getDpidIfNeighborOf(nodeId, srcSw);
+                    // if nodeId is NOT the neighbor of srcSw..
+//                    if (fwdSws.isEmpty()) {
+//                        fwdSws = srManager.getForwardingSwitchForNodeId(srcSw,nodeId);
+//                        if (fwdSws == null || fwdSws.isEmpty()) {
+//                            log.warn("There is no route from node {} to node {}",
+//                                     srcSw.getDpid(), nodeId);
+//                            return null;
+//                        }
+//                        routeInfo.addRoute(nodeId);
+//                        i++;
+//                    }
+                    DeviceId fwdSws = config.getDeviceId(Integer.parseInt(route.get(0)));
+                    routeInfo.setFwdSwDeviceId(fwdSws);
+                    // we check only the next node ID of the source router
+                    checkNeighbor = false;
+                } else  { // if neighbor check is already done, then just add it
+                    routeInfo.addRoute(nodeId);
+                    i++;
+                }
+            } else {
+                // if i > 1
+
+                routeInfo.addRoute(nodeId);
+                i++;
+            }
+
+                 // If the number of labels reaches the limit, start over the procedure
+            if (i == 3 + 1) {
+
+                rules.add(routeInfo);
+                routeInfo = new TunnelRouteInfo();
+                srcdeviceId = config.getDeviceId(Integer.parseInt(route.get(0))).toString();
+
+                routeInfo.setSrcDeviceId(srcdeviceId);
+                i = 1;
+                checkNeighbor = true;
+            }
+        }
+
+
+        if (i < 3 + 1 && (routeInfo.getFwdSwDeviceId() != null &&
+                !(routeInfo.getFwdSwDeviceId() == null))) {
+            rules.add(routeInfo);
+            // NOTE: empty label stack can happen, but forwarding destination should be set
+        }
+
+        return rules;
+    }
+
+
+    public class TunnelRouteInfo {
+
+        private String srcSwDeviceId;
+        //changed this from a list of deviceIds to just one, since I'm not supporting ECMP for now
+        private DeviceId fwdSwDeviceIds;
+        private List<String> route;
+        private int gropuId;
+        private String srcAdjSid;
+
+        public TunnelRouteInfo() {
+//            fwdSwDeviceIds = new ArrayList<DeviceId>();
+            fwdSwDeviceIds = null;
+            route = new ArrayList<String>();
+        }
+
+        public void setSrcAdjacencySid(String nodeId) {
+            this.srcAdjSid = nodeId;
+        }
+
+        private void setSrcDeviceId(String deviceId) {
+            this.srcSwDeviceId = deviceId;
+        }
+
+        //changed this from a list of deviceIds to just one, since I'm not supporting ECMP for now
+        private void setFwdSwDeviceId(DeviceId deviceId) {
+            this.fwdSwDeviceIds = deviceId;
+        }
+
+        private void addRoute(String id) {
+            route.add(id);
+        }
+
+        private void setGroupId(int groupId) {
+            this.gropuId = groupId;
+        }
+
+        private String getSrcAdjanceySid() {
+            return this.srcAdjSid;
+        }
+
+        public String getsrcSwDeviceId() {
+            return this.srcSwDeviceId;
+        }
+
+        //changed this from a list of deviceIds to just one, since I'm not supporting ECMP for now
+        public DeviceId getFwdSwDeviceId() {
+            return this.fwdSwDeviceIds;
+        }
+
+        public List<String> getRoute() {
+            return this.route;
+        }
+
+        public int getGroupId() {
+            return this.gropuId;
+        }
+
     }
 
 }
