@@ -226,7 +226,7 @@ public class TunnelHandler {
 
         for (TunnelRouteInfo route: stitchingRule) {
 
-            DeviceId deviceId = config.getDeviceId(Integer.parseInt(route.getsrcSwDeviceId()));
+            DeviceId deviceId = config.getDeviceId(route.getsrcSwSID());
             if (deviceId == null) {
                 log.warn("No device found for SID {}", tunnel.labelIds().get(0));
             } else if (groupHandlerMap.get(deviceId) == null) {
@@ -235,10 +235,10 @@ public class TunnelHandler {
 
             Set<DeviceId> deviceIds = new HashSet<>();
             //int sid = tunnel.labelIds().get(1);
-            deviceIds.add(config.getDeviceId(Integer.parseInt(route.getRoute().get(0))));
+            deviceIds.add(config.getDeviceId(route.getRoute().get(0)));
 
 
-            NeighborSet ns = new NeighborSet(deviceIds, Integer.parseInt(route.getRoute().get(1)));
+            NeighborSet ns = new NeighborSet(deviceIds, route.getRoute().get(1));
 
             int groupId = -1;
 
@@ -323,7 +323,7 @@ public class TunnelHandler {
 
         //this takes the SID (string), converts it to an int, getDeviceID
         // then returns the DeviceID, which is then converted to a string
-        String srcdeviceId = config.getDeviceId(Integer.parseInt(route.get(0))).toString();
+        int srcSID = Integer.parseInt(route.get(0));
 
 
         int i = 0;
@@ -333,15 +333,15 @@ public class TunnelHandler {
         for (String nodeId: route) {
             // The first node ID is always the source router.
             if (i == 0) {
-                if (srcdeviceId == null) {
-                    srcdeviceId = config.getDeviceId(Integer.parseInt(route.get(0))).toString();
+                if (srcSID == 0) {
+                    srcSID = Integer.parseInt(route.get(0));
                 }
-                routeInfo.setSrcDeviceId(srcdeviceId);
+                routeInfo.setsrcSwSID(srcSID);
                 checkNeighbor = true;
                 i++;
             } else if (i == 1) {
 // if this is the first node ID to put the label stack.
-                if (checkNeighbor) {
+                //if (checkNeighbor) {
 //                    List<DeviceId> fwdSws = getDpidIfNeighborOf(nodeId, srcSw);
                     // if nodeId is NOT the neighbor of srcSw..
 //                    if (fwdSws.isEmpty()) {
@@ -353,19 +353,19 @@ public class TunnelHandler {
 //                        }
 //                        routeInfo.addRoute(nodeId);
 //                        i++;
-//                    }
-                    DeviceId fwdSws = config.getDeviceId(Integer.parseInt(route.get(0)));
-                    routeInfo.setFwdSwDeviceId(fwdSws);
-                    // we check only the next node ID of the source router
-                    checkNeighbor = false;
-                } else  { // if neighbor check is already done, then just add it
-                    routeInfo.addRoute(nodeId);
-                    i++;
-                }
+////                    }
+//                    DeviceId fwdSws = config.getDeviceId(Integer.parseInt(route.get(0)));
+//                    routeInfo.setFwdSwDeviceId(fwdSws);
+//                    // we check only the next node ID of the source router
+//                    checkNeighbor = false;
+// //               } else  { // if neighbor check is already done, then just add it
+                routeInfo.addRoute(Integer.parseInt(nodeId));
+   //                 i++;
+                //}
             } else {
                 // if i > 1
 
-                routeInfo.addRoute(nodeId);
+                routeInfo.addRoute(Integer.parseInt(nodeId));
                 i++;
             }
 
@@ -374,9 +374,9 @@ public class TunnelHandler {
 
                 rules.add(routeInfo);
                 routeInfo = new TunnelRouteInfo();
-                srcdeviceId = config.getDeviceId(Integer.parseInt(route.get(0))).toString();
+                srcSID = Integer.parseInt(route.get(0));
 
-                routeInfo.setSrcDeviceId(srcdeviceId);
+                routeInfo.setsrcSwSID(srcSID);
                 i = 1;
                 checkNeighbor = true;
             }
@@ -395,25 +395,25 @@ public class TunnelHandler {
 
     public class TunnelRouteInfo {
 
-        private String srcSwDeviceId;
+        private int srcSwSID;
         //changed this from a list of deviceIds to just one, since I'm not supporting ECMP for now
         private DeviceId fwdSwDeviceIds;
-        private List<String> route;
+        private List<Integer> route;
         private int gropuId;
         private String srcAdjSid;
 
         public TunnelRouteInfo() {
 //            fwdSwDeviceIds = new ArrayList<DeviceId>();
             fwdSwDeviceIds = null;
-            route = new ArrayList<String>();
+            route = new ArrayList<Integer>();
         }
 
         public void setSrcAdjacencySid(String nodeId) {
             this.srcAdjSid = nodeId;
         }
 
-        private void setSrcDeviceId(String deviceId) {
-            this.srcSwDeviceId = deviceId;
+        private void setsrcSwSID(int sid) {
+            this.srcSwSID = sid;
         }
 
         //changed this from a list of deviceIds to just one, since I'm not supporting ECMP for now
@@ -421,7 +421,7 @@ public class TunnelHandler {
             this.fwdSwDeviceIds = deviceId;
         }
 
-        private void addRoute(String id) {
+        private void addRoute(int id) {
             route.add(id);
         }
 
@@ -433,8 +433,8 @@ public class TunnelHandler {
             return this.srcAdjSid;
         }
 
-        public String getsrcSwDeviceId() {
-            return this.srcSwDeviceId;
+        public int getsrcSwSID() {
+            return this.srcSwSID;
         }
 
         //changed this from a list of deviceIds to just one, since I'm not supporting ECMP for now
@@ -442,7 +442,7 @@ public class TunnelHandler {
             return this.fwdSwDeviceIds;
         }
 
-        public List<String> getRoute() {
+        public List<Integer> getRoute() {
             return this.route;
         }
 
