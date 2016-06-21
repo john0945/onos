@@ -52,6 +52,8 @@ public class TunnelHandler {
     private Map<DeviceId, DefaultGroupHandler> groupHandlerMap;
     private LinkService linkService;
 
+    private List<Integer> stitchedGroupIDs;
+
     private List<TunnelRouteInfo> routes;
    // private final int max_num_labels = 3;
 
@@ -152,7 +154,13 @@ public class TunnelHandler {
             return Result.SUCCESS;
 
         } else {
-            createStitchedGroupsForTunnel(tunnel);
+            stitchedGroupIDs = createStitchedGroupsForTunnel(tunnel);
+
+            for (int groupId : stitchedGroupIDs) {
+                tunnel.addStitchedGroupIDs(groupId);
+            }
+            tunnelStore.put(tunnel.id(), tunnel);
+
             return Result.SUCCESS;
 
         }
@@ -213,8 +221,9 @@ public class TunnelHandler {
         return tunnels;
     }
 
-    private int createStitchedGroupsForTunnel(Tunnel tunnel) {
+    private List<Integer> createStitchedGroupsForTunnel(Tunnel tunnel) {
 
+        List<Integer> groupIDs = new ArrayList<Integer>();
         List<String> ids = new ArrayList<String>();
         for (Integer label : tunnel.labelIds()) {
             ids.add(label.toString());
@@ -241,26 +250,22 @@ public class TunnelHandler {
             NeighborSet ns = new NeighborSet(deviceIds, route.getRoute().get(1));
 
             int groupId = -1;
+            boolean allow;
 
             if (groupHandlerMap.get(deviceId).hasNextObjectiveId(ns)) {
-                tunnel.allowToRemoveGroup(false);
+                allow = false;
             } else {
-                tunnel.allowToRemoveGroup(true);
+                allow = true;
             }
 
-            if (groupHandlerMap.get(deviceId).getNextObjectiveId(ns, null) < 0) {
-                log.debug("Failed to create a tunnel at driver.");
-                return -1;
-            }
+            groupId = groupHandlerMap.get(deviceId).getNextObjectiveId(ns, null);
+            tunnel.allowToRemoveStitchedGroup(groupId, allow);
             route.setGroupId(groupId);
 
-
-
-
+            groupIDs.add(groupId);
         }
 
-
-        return 1;
+        return groupIDs;
     }
 
     private int createGroupsForTunnel(Tunnel tunnel) {
@@ -360,7 +365,7 @@ public class TunnelHandler {
 //                    checkNeighbor = false;
 // //               } else  { // if neighbor check is already done, then just add it
                 routeInfo.addRoute(Integer.parseInt(nodeId));
-   //                 i++;
+                    i++;
                 //}
             } else {
                 // if i > 1

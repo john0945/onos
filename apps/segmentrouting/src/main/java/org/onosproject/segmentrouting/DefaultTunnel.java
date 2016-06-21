@@ -115,7 +115,8 @@ public class DefaultTunnel implements Tunnel {
 
     //added for tunnels owning multiple groups
     @Override
-    public List<Integer> stitchedGroupIDs(){ return this.stitchedGroupIDs; }
+    public List<Integer> stitchedGroupIDs() {
+        return this.stitchedGroupIDs; }
 
     @Override
     public void addStitchedGroupIDs(int stitchedGroupID) {
