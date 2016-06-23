@@ -55,7 +55,7 @@ public class TunnelHandler {
     private List<Integer> stitchedGroupIDs;
 
     private List<TunnelRouteInfo> routes;
-   // private final int max_num_labels = 3;
+    private final int maxlabels = 2;
 
     /**
      * Result of tunnel creation or removal.
@@ -375,7 +375,7 @@ public class TunnelHandler {
             }
 
                  // If the number of labels reaches the limit, start over the procedure
-            if (i == 3 + 1) {
+            if (i == maxlabels + 1) {
 
                 rules.add(routeInfo);
                 routeInfo = new TunnelRouteInfo();
@@ -388,7 +388,7 @@ public class TunnelHandler {
         }
 
 
-        if (i < 3 + 1 && (routeInfo.getFwdSwDeviceId() != null &&
+        if (i < maxlabels + 1 && (routeInfo.getFwdSwDeviceId() != null &&
                 !(routeInfo.getFwdSwDeviceId() == null))) {
             rules.add(routeInfo);
             // NOTE: empty label stack can happen, but forwarding destination should be set
