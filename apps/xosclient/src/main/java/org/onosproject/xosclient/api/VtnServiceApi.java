@@ -22,6 +22,21 @@ import java.util.Set;
  */
 public interface VtnServiceApi {
 
+    // TODO move network type to VtnNetwork later
+    enum NetworkType {
+        PRIVATE,
+        PUBLIC,
+        MANAGEMENT_HOSTS,
+        MANAGEMENT_LOCAL
+    }
+
+    enum ServiceType {
+        VSG,
+        ACCESS_AGENT,
+        MANAGEMENT,
+        DEFAULT
+    }
+
     /**
      * Returns all services list.
      *

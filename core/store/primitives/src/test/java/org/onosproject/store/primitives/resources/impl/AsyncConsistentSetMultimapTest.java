@@ -20,27 +20,19 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.TreeMultiset;
 import com.google.common.io.Files;
-
-import io.atomix.catalyst.transport.Address;
-import io.atomix.catalyst.transport.local.LocalTransport;
-import io.atomix.copycat.server.CopycatServer;
-import io.atomix.copycat.server.storage.Storage;
-import io.atomix.copycat.server.storage.StorageLevel;
-import io.atomix.manager.internal.ResourceManagerState;
 import io.atomix.resource.ResourceType;
-
 import org.apache.commons.collections.keyvalue.DefaultMapEntry;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.onlab.util.Tools;
 
 import java.io.File;
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -66,6 +58,7 @@ public class AsyncConsistentSetMultimapTest extends AtomixTestBase {
                                                               valueTwo,
                                                               valueThree,
                                                               valueFour);
+    private final AtomicInteger port = new AtomicInteger(49200);
 
     @Override
     protected ResourceType resourceType() {
@@ -411,7 +404,6 @@ public class AsyncConsistentSetMultimapTest extends AtomixTestBase {
         clearTests();
     }
 
-
     private AsyncConsistentSetMultimap createResource(int clusterSize) {
         try {
             createCopycatServers(clusterSize);
@@ -422,24 +414,6 @@ public class AsyncConsistentSetMultimapTest extends AtomixTestBase {
         } catch (Throwable e) {
             throw new RuntimeException(e.toString());
         }
-    }
-
-    @Override
-    protected CopycatServer createCopycatServer(Address address) {
-        CopycatServer server = CopycatServer.builder(address)
-                .withTransport(new LocalTransport(registry))
-                .withStorage(Storage.builder()
-                                     .withStorageLevel(StorageLevel.MEMORY)
-                                     .withDirectory(testDir + "/" + address.port())
-                                     .build())
-                .withStateMachine(ResourceManagerState::new)
-                .withSerializer(serializer.clone())
-                .withHeartbeatInterval(Duration.ofMillis(25))
-                .withElectionTimeout(Duration.ofMillis(50))
-                .withSessionTimeout(Duration.ofMillis(100))
-                .build();
-        copycatServers.add(server);
-        return server;
     }
 
     /**

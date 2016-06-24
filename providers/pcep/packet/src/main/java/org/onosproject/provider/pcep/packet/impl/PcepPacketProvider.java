@@ -10,10 +10,9 @@ import org.apache.felix.scr.annotations.ReferenceCardinality;
 import org.apache.felix.scr.annotations.Service;
 import org.onlab.packet.Ethernet;
 import org.onlab.packet.IPv4;
+import org.onlab.packet.MacAddress;
 import org.onlab.packet.TCP;
-import org.onosproject.net.AnnotationKeys;
 import org.onosproject.net.ConnectPoint;
-import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.PortNumber;
 import org.onosproject.net.device.DeviceService;
@@ -90,25 +89,12 @@ public class PcepPacketProvider extends AbstractProvider implements PacketProvid
 
             Ethernet eth = new Ethernet();
             eth.setEtherType(Ethernet.TYPE_IPV4);
+            eth.setDestinationMACAddress(MacAddress.NONE);
             eth.setPayload(ipv4);
 
             // Get lsrId of the PCEP client from the PCC ID. Session info is based on lsrID.
             String lsrId = String.valueOf(pccId.ipAddress());
-            DeviceId pccDeviceId = null;
-
-            // Find PCC deviceID from lsrId stored as annotations
-            Iterable<Device> devices = deviceService.getAvailableDevices();
-            for (Device dev : devices) {
-                if ("L3".equals(dev.annotations().value(AnnotationKeys.TYPE))
-                        && lsrId.equals(dev.annotations().value(LSRID))) {
-                    pccDeviceId = dev.id();
-                    break;
-                }
-            }
-
-            if (pccDeviceId == null) {
-                return;
-            }
+            DeviceId pccDeviceId = DeviceId.deviceId(lsrId);
 
             InboundPacket inPkt = new DefaultInboundPacket(new ConnectPoint(pccDeviceId,
                                                                             PortNumber.portNumber(PCEP_PORT)),

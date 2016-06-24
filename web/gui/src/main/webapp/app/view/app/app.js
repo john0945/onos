@@ -38,8 +38,8 @@
     var INSTALLED = 'INSTALLED',
         ACTIVE = 'ACTIVE',
         appMgmtReq = 'appManagementRequest',
-        topPdg = 50,
-        panelWidth = 500,
+        topPdg = 60,
+        panelWidth = 540,
         pName = 'application-details-panel',
         detailsReq = 'appDetailsRequest',
         detailsResp = 'appDetailsResponse',
@@ -49,13 +49,14 @@
         iconUrlSuffix = '/icon',
         dialogId = 'app-dialog',
         dialogOpts = {
-            edge: 'right'
+            edge: 'right',
+            width: 400
         },
         strongWarning = {
             'org.onosproject.drivers': true
         },
         discouragement = 'Deactivating or uninstalling this component can' +
-        ' have serious negative consequences! Do so at your own risk!!',
+        ' have serious negative consequences! <br> = DO SO AT YOUR OWN RISK =',
         propOrder = ['id', 'state', 'category', 'version', 'origin', 'role'],
         friendlyProps = ['App ID', 'State', 'Category', 'Version', 'Origin', 'Role'];
         // note: url is handled separately
@@ -84,8 +85,7 @@
     }
 
     function addCloseBtn(div) {
-        is.loadEmbeddedIcon(div, 'plus', 30);
-        div.select('g').attr('transform', 'translate(25, 0) rotate(45)');
+        is.loadEmbeddedIcon(div, 'close', 26);
         div.on('click', closePanel);
     }
 
@@ -136,19 +136,18 @@
     }
 
     function addProp(tbody, index, value) {
-        var tr = tbody.append('tr'),
-            vcls = index ? 'value' : 'value-bold';
+        var tr = tbody.append('tr');
 
         function addCell(cls, txt) {
             tr.append('td').attr('class', cls).html(txt);
         }
 
         addCell('label', friendlyProps[index] + ':');
-        addCell(vcls, value);
+        addCell('value', value);
     }
 
     function urlize(u) {
-        return '<i>URL:</i> <a href="' + u + '" target="_blank">' + u + '</a>';
+        return 'Url:<br/> <a href="' + u + '" target="_blank">' + u + '</a>';
     }
 
     function addIcon(elem, value) {
@@ -289,7 +288,7 @@
             var content = ds.createDiv();
             content.append('p').text(fs.cap(action) + ' ' + itemId);
             if (strongWarning[itemId]) {
-                content.append('p').text(discouragement).classed('strong', true);
+                content.append('p').html(discouragement).classed('strong', true);
             }
             return content;
         }
@@ -361,6 +360,7 @@
         $scope.$on('$destroy', function () {
             ks.unbindKeys();
             wss.unbindHandlers(handlers);
+            ds.closeDialog();
         });
 
         $log.log('OvAppCtrl has been created');
@@ -470,7 +470,7 @@
                 });
                 ks.gestureNotes([
                     ['click', 'Select a row to show application details'],
-                    ['scroll down', 'See more application']
+                    ['scroll down', 'See more applications']
                 ]);
 
                 // if the panelData changes

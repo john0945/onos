@@ -20,7 +20,6 @@
         <groupId>org.onosproject</groupId>
         <artifactId>onos</artifactId>
         <version>1.7.0-SNAPSHOT</version>
-        <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>onos-apps</artifactId>
@@ -45,7 +44,6 @@
         <module>bgprouter</module>
         <module>test</module>
         <module>segmentrouting</module>
-        <module>xos-integration</module>
         <module>kafka-integration</module>
         <module>pcep-api</module>
         <module>iptopology-api</module>
@@ -54,6 +52,7 @@
         <module>flowanalyzer</module>
         <module>vtn</module>
         <module>dhcp</module>
+        <module>dhcprelay</module>
         <module>mfwd</module>
         <module>pim</module>
         <module>mlb</module>
@@ -71,6 +70,7 @@
         <module>graphitemetrics</module>
         <module>xosclient</module>
         <module>scalablegateway</module>
+        <module>bmv2-demo</module>
     </modules>
 
 

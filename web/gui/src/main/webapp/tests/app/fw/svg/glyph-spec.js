@@ -23,7 +23,7 @@
 describe('factory: fw/svg/glyph.js', function() {
     var $log, fs, gs, d3Elem, svg;
 
-    var numBaseGlyphs = 50,
+    var numBaseGlyphs = 51,
         vbBird = '352 224 113 112',
         vbGlyph = '0 0 110 110',
         vbBadge = '0 0 10 10',
@@ -72,14 +72,15 @@ describe('factory: fw/svg/glyph.js', function() {
 
             // badges
             uiAttached: 'M2,2.5a.5,.5',
-            checkMark: 'M2.6,4.5c0',
-            xMark: 'M9.0,7.2C8.2',
+            checkMark: 'M8.6,3.4L4',
+            xMark: 'M7.8,6.7L6.7',
             triangleUp: 'M0.5,6.2c0',
             triangleDown: 'M9.5,4.2c0',
             plus: 'M4,2h2v2h2v2',
             minus: 'M2,4h6v2',
-            play: 'M2.5,2l5.5,3',
+            play: 'M3,1.5l3.5,3.5',
             stop: 'M2.5,2.5h5',
+            xClose: 'M8.6,6.8L6.8,8.6',
 
             cloud: 'M37.6,79.5c-6.9,8.7-20.4,8.6',
 
@@ -88,7 +89,8 @@ describe('factory: fw/svg/glyph.js', function() {
             diamond: 'M.2,.5'
         },
         glyphIds = [
-            'unknown', 'node', 'switch', 'roadm', 'endstation', 'router',
+            'unknown', 'uiAttached',
+            'node', 'switch', 'roadm', 'endstation', 'router',
             'bgpSpeaker', 'chain', 'crown', 'lock', 'topo', 'refresh',
             'garbage',
             'flowTable', 'portTable', 'groupTable',
@@ -97,7 +99,7 @@ describe('factory: fw/svg/glyph.js', function() {
             'prevIntent', 'intentTraffic', 'allTraffic', 'flows', 'eqMaster'
         ],
         badgeIds = [
-            'uiAttached', 'checkMark', 'xMark', 'triangleUp', 'triangleDown',
+            'checkMark', 'xMark', 'triangleUp', 'triangleDown',
             'plus', 'minus', 'play', 'stop'
         ],
         spriteIds = [

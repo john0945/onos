@@ -44,10 +44,9 @@ from mininet.node import Controller, OVSSwitch, UserSwitch
 from mininet.nodelib import LinuxBridge
 from mininet.net import Mininet
 from mininet.topo import SingleSwitchTopo, Topo
-from mininet.log import setLogLevel, info
+from mininet.log import setLogLevel, info, warn, error, debug
 from mininet.cli import CLI
-from mininet.util import quietRun, waitListening
-from mininet.clean import killprocs
+from mininet.util import quietRun, specialClass
 from mininet.examples.controlnet import MininetFacade
 
 from os import environ
@@ -55,6 +54,8 @@ from os.path import dirname, join, isfile
 from sys import argv
 from glob import glob
 import time
+from functools import partial
+from re import search
 
 
 ### ONOS Environment
@@ -150,6 +151,24 @@ def unpackONOS( destDir='/tmp', run=quietRun ):
     return onosDir
 
 
+def waitListening( server, port=80, callback=None, sleepSecs=.5,
+                   proc='java' ):
+    "Simplified netstat version of waitListening"
+    while True:
+        lines = server.cmd( 'netstat -natp' ).strip().split( '\n' )
+        entries = [ line.split() for line in lines ]
+        portstr = ':%s' % port
+        listening = [ entry for entry in entries
+                      if len( entry ) > 6 and portstr in entry[ 3 ]
+                      and proc in entry[ 6 ] ]
+        if listening:
+            break
+        info( '.' )
+        if callback:
+            callback()
+        time.sleep( sleepSecs )
+
+
 ### Mininet classes
 
 def RenamedTopo( topo, *args, **kwargs ):
@@ -191,20 +210,23 @@ class ONOSNode( Controller ):
     "ONOS cluster node"
 
     def __init__( self, name, **kwargs ):
+        "alertAction: exception|ignore|warn|exit (exception)"
         kwargs.update( inNamespace=True )
+        self.alertAction = kwargs.pop( 'alertAction', 'exception' )
         Controller.__init__( self, name, **kwargs )
         self.dir = '/tmp/%s' % self.name
         self.client = self.dir + '/karaf/bin/client'
         self.ONOS_HOME = '/tmp'
+        self.cmd( 'rm -rf', self.dir )
+        self.ONOS_HOME = unpackONOS( self.dir, run=self.ucmd )
 
     # pylint: disable=arguments-differ
 
-    def start( self, env ):
+    def start( self, env, nodes=() ):
         """Start ONOS on node
-           env: environment var dict"""
+           env: environment var dict
+           nodes: all nodes in cluster"""
         env = dict( env )
-        self.cmd( 'rm -rf', self.dir )
-        self.ONOS_HOME = unpackONOS( self.dir, run=self.ucmd )
         env.update( ONOS_HOME=self.ONOS_HOME )
         self.updateEnv( env )
         karafbin = glob( '%s/apache*/bin' % self.ONOS_HOME )[ 0 ]
@@ -212,12 +234,14 @@ class ONOSNode( Controller ):
         self.cmd( 'export PATH=%s:%s:$PATH' % ( onosbin, karafbin ) )
         self.cmd( 'cd', self.ONOS_HOME )
         self.ucmd( 'mkdir -p config && '
-                   'onos-gen-partitions config/cluster.json' )
+                   'onos-gen-partitions config/cluster.json',
+                   ' '.join( node.IP() for node in nodes ) )
         info( '(starting %s)' % self )
         service = join( self.ONOS_HOME, 'bin/onos-service' )
         self.ucmd( service, 'server 1>../onos.log 2>../onos.log'
                    ' & echo $! > onos.pid; ln -s `pwd`/onos.pid ..' )
         self.onosPid = int( self.cmd( 'cat onos.pid' ).strip() )
+        self.warningCount = 0
 
     # pylint: enable=arguments-differ
 
@@ -226,15 +250,66 @@ class ONOSNode( Controller ):
         self.cmd( 'pkill -HUP -f karaf.jar && wait' )
         self.cmd( 'rm -rf', self.dir )
 
+    def sanityAlert( self, *args ):
+        "Alert to raise on sanityCheck failure"
+        info( '\n' )
+        if self.alertAction == 'exception':
+            raise Exception( *args )
+        if self.alertAction == 'warn':
+            warn( *args + ( '\n', ) )
+        elif self.alertAction == 'exit':
+            error( '***',  *args +
+                   ( '\nExiting. Run "sudo mn -c" to clean up.\n', ) )
+            exit( 1 )
+
     def isRunning( self ):
         "Is our ONOS process still running?"
-        cmd = 'ps -p %d  >/dev/null 2>&1 && echo "running" || echo "not running"'
-        return self.cmd( cmd % self.onosPid ) == 'running'
+        cmd = ( 'ps -p %d  >/dev/null 2>&1 && echo "running" ||'
+                'echo "not running"' )
+        return self.cmd( cmd % self.onosPid ).strip() == 'running'
 
-    def sanityCheck( self ):
-        "Check whether we've quit or are running out of memory"
+    def checkLog( self ):
+        "Return log file errors and warnings"
+        log = join( self.dir, 'log' )
+        errors, warnings = [], []
+        if isfile( log ):
+            lines = open( log ).read().split( '\n' )
+            errors = [ line for line in lines if 'ERROR' in line ]
+            warnings = [ line for line in lines if 'WARN'in line ]
+        return errors, warnings
+
+    def memAvailable( self ):
+        "Return available memory in KB (or -1 if we can't tell)"
+        lines = open( '/proc/meminfo' ).read().strip().split( '\n' )
+        entries = map( str.split, lines )
+        index = { entry[ 0 ]: entry for entry in entries }
+        # Check MemAvailable if present
+        default = ( None, '-1', 'kB' )
+        _name, count, unit = index.get( 'MemAvailable:', default )
+        if unit.lower() == 'kb':
+            return int( count )
+        return -1
+
+    def sanityCheck( self, lowMem=100000 ):
+        """Check whether we've quit or are running out of memory
+           lowMem: low memory threshold in KB (100000)"""
+        # Are we still running?
         if not self.isRunning():
-            raise Exception( 'ONOS node %s has died' % self.name )
+            self.sanityAlert( 'ONOS node %s has died' % self.name )
+        # Are there errors in the log file?
+        errors, warnings  = self.checkLog()
+        if errors:
+            self.sanityAlert( 'ONOS startup errors:\n<<%s>>' %
+                              '\n'.join( errors ) )
+        warningCount = len( warnings )
+        if warnings and warningCount > self.warningCount:
+            warn( '(%d warnings)' % len( warnings ) )
+            self.warningCount = warningCount
+        # Are we running out of memory?
+        mem = self.memAvailable()
+        if mem > 0 and mem < lowMem:
+            self.sanityAlert( 'Running out of memory (only %d KB available)'
+                              % mem )
 
     def waitStarted( self ):
         "Wait until we've really started"
@@ -244,24 +319,28 @@ class ONOSNode( Controller ):
             if 'running' in status and 'not running' not in status:
                 break
             info( '.' )
+            self.sanityCheck()
             time.sleep( 1 )
         info( ' ssh-port' )
-        waitListening( server=self, port=KarafPort )
+        waitListening( server=self, port=KarafPort, callback=self.sanityCheck )
         info( ' openflow-port' )
-        waitListening( server=self, port=OpenFlowPort )
+        waitListening( server=self, port=OpenFlowPort,
+                       callback=self.sanityCheck )
         info( ' client' )
         while True:
-            result = quietRun( 'echo apps -a | %s -h %s' %
+            result = quietRun( '%s -h %s "apps -a"' %
                                ( self.client, self.IP() ), shell=True )
             if 'openflow' in result:
                 break
             info( '.' )
+            self.sanityCheck()
             time.sleep( 1 )
         info( ')\n' )
 
     def updateEnv( self, envDict ):
         "Update environment variables"
-        cmd = ';'.join( 'export %s="%s"' % ( var, val )
+        cmd = ';'.join( ( 'export %s="%s"' % ( var, val )
+                          if val else 'unset %s' % var )
                         for var, val in envDict.iteritems() )
         self.cmd( cmd )
 
@@ -281,11 +360,13 @@ class ONOSCluster( Controller ):
            ipBase: IP range for ONOS nodes
            forward: default port forwarding list,
            topo: topology class or instance
+           nodeOpts: ONOSNode options
            **kwargs: additional topology parameters"""
         args = list( args )
         name = args.pop( 0 )
         topo = kwargs.pop( 'topo', None )
         nat = kwargs.pop( 'nat', 'nat0' )
+        nodeOpts = kwargs.pop( 'nodeOpts', {} )
         # Default: single switch with 1 ONOS node
         if not topo:
             topo = SingleSwitchTopo
@@ -300,7 +381,8 @@ class ONOSCluster( Controller ):
         fixIPTables()
         self.env = initONOSEnv()
         self.net = Mininet( topo=topo, ipBase=self.ipBase,
-                            host=ONOSNode, switch=LinuxBridge,
+                            host=partial( ONOSNode, **nodeOpts ),
+                            switch=LinuxBridge,
                             controller=None )
         if nat:
             self.net.addNAT( nat ).configDefault()
@@ -312,7 +394,7 @@ class ONOSCluster( Controller ):
         info( '*** ONOS_APPS = %s\n' % ONOS_APPS )
         self.net.start()
         for node in self.nodes():
-            node.start( self.env )
+            node.start( self.env, self.nodes() )
         info( '\n' )
         self.configPortForwarding( ports=self.forward, action='A' )
         self.waitStarted()
@@ -338,9 +420,22 @@ class ONOSCluster( Controller ):
         "Return list of ONOS nodes"
         return [ h for h in self.net.hosts if isinstance( h, ONOSNode ) ]
 
-    def configPortForwarding( self, ports=[], intf='eth0', action='A' ):
-        """Start or stop ports on intf to all nodes
+    def defaultIntf( self ):
+        "Call ip route to determine default interface"
+        result = quietRun( 'ip route | grep default', shell=True ).strip()
+        match = search( r'dev\s+([^\s]+)', result )
+        if match:
+            intf = match.group( 1 )
+        else:
+            warn( "Can't find default network interface - using eth0\n" )
+            intf = 'eth0'
+        return intf
+
+    def configPortForwarding( self, ports=[], intf='', action='A' ):
+        """Start or stop forwarding on intf to all nodes
            action: A=add/start, D=delete/stop (default: A)"""
+        if not intf:
+            intf = self.defaultIntf()
         for port in ports:
             for index, node in enumerate( self.nodes() ):
                 ip, inport = node.IP(), port + index
@@ -436,17 +531,66 @@ class ONOSCLI( OldCLI ):
 
     def do_log( self, line ):
         "Run tail -f /tmp/onos1/log; press control-C to stop"
-        self.default( self.onos1().name, 'tail -f /tmp/%s/log' % self.onos1() )
+        self.default( '%s tail -f /tmp/%s/log' %
+                      ( self.onos1(), self.onos1() ) )
+
+    def do_status( self, line ):
+        "Return status of ONOS cluster(s)"
+        for c in self.mn.controllers:
+            if isinstance( c, ONOSCluster ):
+                for node in c.net.hosts:
+                    if isinstance( node, ONOSNode ):
+                        errors, warnings = node.checkLog()
+                        running = ( 'Running' if node.isRunning()
+                                   else 'Exited' )
+                        status = ''
+                        if errors:
+                            status += '%d ERRORS ' % len( errors )
+                        if warnings:
+                            status += '%d warnings' % len( warnings )
+                        status = status if status else 'OK'
+                        info( node, '\t', running, '\t', status, '\n' )
+
+    def do_arp( self, line ):
+        "Send gratuitous arps from all data network hosts"
+        startTime = time.time()
+        try:
+            count = int( line )
+        except:
+            count = 1
+        # Technically this check should be on the host
+        if '-U' not in quietRun( 'arping -h', shell=True ):
+            warn( 'Please install iputils-arping.\n' )
+            return
+        # This is much faster if we do it in parallel
+        for host in self.mn.net.hosts:
+            intf = host.defaultIntf()
+            # -b: keep using broadcasts; -f: quit after 1 reply
+            # -U: gratuitous ARP update
+            host.sendCmd( 'arping -bf -c', count, '-U -I',
+                           intf.name, intf.IP() )
+        for host in self.mn.net.hosts:
+            # We could check the output here if desired
+            host.waitOutput()
+            info( '.' )
+        info( '\n' )
+        elapsed = time.time() - startTime
+        debug( 'Completed in %.2f seconds\n' % elapsed )
+
+
+# For interactive use, exit on error
+exitOnError = dict( nodeOpts={ 'alertAction': 'exit' } )
+ONOSClusterInteractive = specialClass( ONOSCluster, defaults=exitOnError )
 
 
 ### Exports for bin/mn
 
 CLI = ONOSCLI
-
-controllers = { 'onos': ONOSCluster, 'default': ONOSCluster }
+controllers = { 'onos': ONOSClusterInteractive,
+                'default': ONOSClusterInteractive }
 
 # XXX Hack to change default controller as above doesn't work
-findController = lambda: ONOSCluster
+findController = lambda: controllers[ 'default' ]
 
 switches = { 'onos': ONOSOVSSwitch,
              'onosovs': ONOSOVSSwitch,

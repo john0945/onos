@@ -177,7 +177,11 @@ public class GossipIntentStore
             // Only the master is modifying the current state. Therefore assume
             // this always succeeds
             if (newData.state() == PURGE_REQ) {
-                currentMap.remove(newData.key(), currentData);
+                if (currentData != null) {
+                    currentMap.remove(newData.key(), currentData);
+                } else {
+                    log.info("Gratuitous purge request for intent: {}", newData.key());
+                }
             } else {
                 currentMap.put(newData.key(), new IntentData(newData));
             }

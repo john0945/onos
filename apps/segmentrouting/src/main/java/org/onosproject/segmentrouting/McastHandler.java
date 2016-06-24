@@ -57,13 +57,11 @@ import org.onosproject.store.serializers.KryoNamespaces;
 import org.onosproject.store.service.ConsistentMap;
 import org.onosproject.store.service.Serializer;
 import org.onosproject.store.service.StorageService;
-import org.onosproject.store.service.Versioned;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -79,8 +77,8 @@ public class McastHandler {
     private static final Logger log = LoggerFactory.getLogger(McastHandler.class);
     private final SegmentRoutingManager srManager;
     private final ApplicationId coreAppId;
-    private StorageService storageService;
-    private TopologyService topologyService;
+    private final StorageService storageService;
+    private final TopologyService topologyService;
     private final ConsistentMap<McastStoreKey, NextObjective> mcastNextObjStore;
     private final KryoNamespace.Builder mcastKryo;
     private final ConsistentMap<McastStoreKey, McastRole> mcastRoleStore;
@@ -132,7 +130,7 @@ public class McastHandler {
     /**
      * Read initial multicast from mcast store.
      */
-    public void init() {
+    protected void init() {
         srManager.multicastRouteService.getRoutes().forEach(mcastRoute -> {
             ConnectPoint source = srManager.multicastRouteService.fetchSource(mcastRoute);
             Set<ConnectPoint> sinks = srManager.multicastRouteService.fetchSinks(mcastRoute);
@@ -472,7 +470,7 @@ public class McastHandler {
                             log.warn("Failed to update {} on {}/{}, vlan {}: {}",
                                     mcastIp, deviceId, port.toLong(), assignedVlan, error));
             newNextObj = nextObjBuilder(mcastIp, assignedVlan, existingPorts).add();
-            fwdObj = fwdObjBuilder(mcastIp, assignedVlan, newNextObj.id()).add();
+            fwdObj = fwdObjBuilder(mcastIp, assignedVlan, newNextObj.id()).add(context);
             mcastNextObjStore.put(mcastStoreKey, newNextObj);
             srManager.flowObjectiveService.next(deviceId, newNextObj);
             srManager.flowObjectiveService.forward(deviceId, fwdObj);
@@ -518,27 +516,22 @@ public class McastHandler {
      * @param deviceId device ID
      */
     public void removeDevice(DeviceId deviceId) {
-        Iterator<Map.Entry<McastStoreKey, Versioned<NextObjective>>> itNextObj =
-                mcastNextObjStore.entrySet().iterator();
-        while (itNextObj.hasNext()) {
-            Map.Entry<McastStoreKey, Versioned<NextObjective>> entry = itNextObj.next();
-            if (entry.getKey().deviceId().equals(deviceId)) {
-                ConnectPoint source = getSource(entry.getKey().mcastIp());
-                removeGroupFromDevice(entry.getKey().deviceId(), entry.getKey().mcastIp(),
-                        assignedVlan(deviceId.equals(source.deviceId()) ? source : null));
-                itNextObj.remove();
-            }
-        }
+        mcastNextObjStore.entrySet().stream()
+                .filter(entry -> entry.getKey().deviceId().equals(deviceId))
+                .forEach(entry -> {
+                    ConnectPoint source = getSource(entry.getKey().mcastIp());
+                    removeGroupFromDevice(entry.getKey().deviceId(), entry.getKey().mcastIp(),
+                            assignedVlan(deviceId.equals(source.deviceId()) ? source : null));
+                    mcastNextObjStore.remove(entry.getKey());
+                });
+        log.debug("{} is removed from mcastNextObjStore", deviceId);
 
-        Iterator<Map.Entry<McastStoreKey, Versioned<McastRole>>> itRole =
-                mcastRoleStore.entrySet().iterator();
-        while (itRole.hasNext()) {
-            Map.Entry<McastStoreKey, Versioned<McastRole>> entry = itRole.next();
-            if (entry.getKey().deviceId().equals(deviceId)) {
-                itRole.remove();
-            }
-        }
-
+        mcastRoleStore.entrySet().stream()
+                .filter(entry -> entry.getKey().deviceId().equals(deviceId))
+                .forEach(entry -> {
+                    mcastRoleStore.remove(entry.getKey());
+                });
+        log.debug("{} is removed from mcastRoleStore", deviceId);
     }
 
     /**
@@ -779,11 +772,7 @@ public class McastHandler {
                 // Spine-facing port should have no subnet and no xconnect
                 if (srManager.deviceConfiguration != null &&
                         srManager.deviceConfiguration.getPortSubnet(ingressDevice, port) == null &&
-                        srManager.deviceConfiguration.getXConnects().values().stream()
-                                .allMatch(connectPoints ->
-                                        connectPoints.stream().noneMatch(connectPoint ->
-                                                connectPoint.port().equals(port))
-                                )) {
+                        !srManager.xConnectHandler.hasXConnect(new ConnectPoint(ingressDevice, port))) {
                     return port;
                 }
             }

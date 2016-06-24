@@ -21,7 +21,6 @@
         <groupId>org.onosproject</groupId>
         <artifactId>onos-kafka</artifactId>
         <version>1.7.0-SNAPSHOT</version>
-        <relativePath>../pom.xml</relativePath>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -167,6 +166,7 @@
                         com.fasterxml.jackson.core,
                         org.onlab.packet.*,
                         org.onosproject.*,
+                        org.onlab.util.*,
                         com.google.common.*
                     </Import-Package>
                     <Web-ContextPath>${web.context}</Web-ContextPath>

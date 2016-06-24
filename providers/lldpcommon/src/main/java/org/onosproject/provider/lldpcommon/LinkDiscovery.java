@@ -81,7 +81,7 @@ public class LinkDiscovery implements TimerTask {
 
         ethPacket = new Ethernet();
         ethPacket.setEtherType(Ethernet.TYPE_LLDP);
-        ethPacket.setDestinationMACAddress(ONOSLLDP.LLDP_NICIRA);
+        ethPacket.setDestinationMACAddress(ONOSLLDP.LLDP_ONLAB);
         ethPacket.setPad(true);
 
         bddpEth = new Ethernet();
@@ -255,6 +255,9 @@ public class LinkDiscovery implements TimerTask {
     }
 
     private void sendProbes(Long portNumber) {
+        if (context.packetService() == null) {
+            return;
+        }
         log.trace("Sending probes out to {}@{}", portNumber, device.id());
         OutboundPacket pkt = createOutBoundLldp(portNumber);
         context.packetService().emit(pkt);

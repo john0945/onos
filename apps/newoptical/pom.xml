@@ -21,7 +21,6 @@
         <artifactId>onos-apps</artifactId>
         <groupId>org.onosproject</groupId>
         <version>1.7.0-SNAPSHOT</version>
-        <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>onos-app-newoptical</artifactId>
@@ -34,8 +33,8 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <onos.app.name>org.onosproject.newoptical</onos.app.name>
         <onos.app.category>Traffic Steering</onos.app.category>
-        <onos.app.url>http://onosproject.org</onos.app.url>
-        <onos.app.origin>Open Networking Lab</onos.app.origin>
+        <onos.app.url>https://wiki.onosproject.org/display/ONOS/Packet+Optical+Convergence</onos.app.url>
+        <onos.app.origin>ON.Lab</onos.app.origin>
     </properties>
 
     <dependencies>
@@ -87,6 +86,18 @@
             <groupId>org.onosproject</groupId>
             <artifactId>onos-cli</artifactId>
             <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava-testlib</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.onosproject</groupId>
+            <artifactId>onlab-junit</artifactId>
+            <scope>test</scope>
         </dependency>
 
     </dependencies>

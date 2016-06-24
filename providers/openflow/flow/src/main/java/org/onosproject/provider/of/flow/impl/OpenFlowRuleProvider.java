@@ -19,8 +19,11 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.RemovalCause;
 import com.google.common.cache.RemovalNotification;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
 import org.apache.felix.scr.annotations.Activate;
 import org.apache.felix.scr.annotations.Component;
 import org.apache.felix.scr.annotations.Deactivate;
@@ -127,12 +130,11 @@ public class OpenFlowRuleProvider extends AbstractProvider
     private Cache<Long, InternalCacheEntry> pendingBatches;
 
     private final Timer timer = new Timer("onos-openflow-collector");
-    private final Map<Dpid, FlowStatsCollector> simpleCollectors = Maps.newHashMap();
+    private final Map<Dpid, FlowStatsCollector> simpleCollectors = Maps.newConcurrentMap();
 
     // NewAdaptiveFlowStatsCollector Set
-    private final Map<Dpid, NewAdaptiveFlowStatsCollector> afsCollectors = Maps.newHashMap();
-    private final Map<Dpid, FlowStatsCollector> collectors = Maps.newHashMap();
-    private final Map<Dpid, TableStatisticsCollector> tableStatsCollectors = Maps.newHashMap();
+    private final Map<Dpid, NewAdaptiveFlowStatsCollector> afsCollectors = Maps.newConcurrentMap();
+    private final Map<Dpid, TableStatisticsCollector> tableStatsCollectors = Maps.newConcurrentMap();
 
     /**
      * Creates an OpenFlow host provider.
@@ -142,7 +144,7 @@ public class OpenFlowRuleProvider extends AbstractProvider
     }
 
     @Activate
-    public void activate(ComponentContext context) {
+    protected void activate(ComponentContext context) {
         cfgService.registerProperties(getClass());
         providerService = providerRegistry.register(this);
         controller.addListener(listener);
@@ -159,7 +161,7 @@ public class OpenFlowRuleProvider extends AbstractProvider
     }
 
     @Deactivate
-    public void deactivate(ComponentContext context) {
+    protected void deactivate(ComponentContext context) {
         cfgService.unregisterProperties(getClass(), false);
         stopCollectors();
         providerRegistry.unregister(this);
@@ -169,7 +171,7 @@ public class OpenFlowRuleProvider extends AbstractProvider
     }
 
     @Modified
-    public void modified(ComponentContext context) {
+    protected void modified(ComponentContext context) {
         Dictionary<?, ?> properties = context.getProperties();
         int newFlowPollFrequency;
         try {
@@ -218,20 +220,27 @@ public class OpenFlowRuleProvider extends AbstractProvider
     }
 
     private void createCollector(OpenFlowSwitch sw) {
+        checkNotNull(sw, "Null switch");
         if (adaptiveFlowSampling) {
             // NewAdaptiveFlowStatsCollector Constructor
             NewAdaptiveFlowStatsCollector fsc =
                     new NewAdaptiveFlowStatsCollector(driverService, sw, flowPollFrequency);
             fsc.start();
-            afsCollectors.put(new Dpid(sw.getId()), fsc);
+            stopCollectorIfNeeded(afsCollectors.put(new Dpid(sw.getId()), fsc));
         } else {
             FlowStatsCollector fsc = new FlowStatsCollector(timer, sw, flowPollFrequency);
             fsc.start();
-            simpleCollectors.put(new Dpid(sw.getId()), fsc);
+            stopCollectorIfNeeded(simpleCollectors.put(new Dpid(sw.getId()), fsc));
         }
         TableStatisticsCollector tsc = new TableStatisticsCollector(timer, sw, flowPollFrequency);
         tsc.start();
-        tableStatsCollectors.put(new Dpid(sw.getId()), tsc);
+        stopCollectorIfNeeded(tableStatsCollectors.put(new Dpid(sw.getId()), tsc));
+    }
+
+    private void stopCollectorIfNeeded(SwitchDataCollector collector) {
+        if (collector != null) {
+            collector.stop();
+        }
     }
 
     private void stopCollectors() {
@@ -334,10 +343,17 @@ public class OpenFlowRuleProvider extends AbstractProvider
     public void executeBatch(FlowRuleBatchOperation batch) {
         checkNotNull(batch);
 
-        pendingBatches.put(batch.id(), new InternalCacheEntry(batch));
-
         Dpid dpid = Dpid.dpid(batch.deviceId().uri());
         OpenFlowSwitch sw = controller.getSwitch(dpid);
+
+        // If switch no longer exists, simply return.
+        if (sw == null) {
+            Set<FlowRule> failures = ImmutableSet.copyOf(Lists.transform(batch.getOperations(), e -> e.target()));
+            providerService.batchOperationCompleted(batch.id(),
+                                                    new CompletedBatchOperation(false, failures, batch.deviceId()));
+            return;
+        }
+        pendingBatches.put(batch.id(), new InternalCacheEntry(batch));
         OFFlowMod mod;
         for (FlowRuleBatchEntry fbe : batch.getOperations()) {
             // flow is the third party privacy flow
@@ -398,29 +414,17 @@ public class OpenFlowRuleProvider extends AbstractProvider
 
         @Override
         public void switchAdded(Dpid dpid) {
-
-            OpenFlowSwitch sw = controller.getSwitch(dpid);
-
             createCollector(controller.getSwitch(dpid));
         }
 
         @Override
         public void switchRemoved(Dpid dpid) {
             if (adaptiveFlowSampling) {
-                NewAdaptiveFlowStatsCollector collector = afsCollectors.remove(dpid);
-                if (collector != null) {
-                    collector.stop();
-                }
+                stopCollectorIfNeeded(afsCollectors.remove(dpid));
             } else {
-                FlowStatsCollector collector = simpleCollectors.remove(dpid);
-                if (collector != null) {
-                    collector.stop();
-                }
+                stopCollectorIfNeeded(simpleCollectors.remove(dpid));
             }
-            TableStatisticsCollector tsc = tableStatsCollectors.remove(dpid);
-            if (tsc != null) {
-                tsc.stop();
-            }
+            stopCollectorIfNeeded(tableStatsCollectors.remove(dpid));
         }
 
         @Override

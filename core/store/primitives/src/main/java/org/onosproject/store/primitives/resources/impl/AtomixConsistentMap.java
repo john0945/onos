@@ -19,6 +19,7 @@ import io.atomix.copycat.client.CopycatClient;
 import io.atomix.resource.AbstractResource;
 import io.atomix.resource.ResourceTypeInfo;
 
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Collection;
 import java.util.ConcurrentModificationException;
 import java.util.List;
@@ -58,7 +59,6 @@ import org.onosproject.store.service.MapTransaction;
 import org.onosproject.store.service.Versioned;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 /**
@@ -69,7 +69,7 @@ public class AtomixConsistentMap extends AbstractResource<AtomixConsistentMap>
     implements AsyncConsistentMap<String, byte[]> {
 
     private final Set<Consumer<Status>> statusChangeListeners = Sets.newCopyOnWriteArraySet();
-    private final Map<MapEventListener<String, byte[]>, Executor> mapEventListeners = Maps.newIdentityHashMap();
+    private final Map<MapEventListener<String, byte[]>, Executor> mapEventListeners = new ConcurrentHashMap<>();
 
     public static final String CHANGE_SUBJECT = "changeEvents";
 
@@ -85,6 +85,11 @@ public class AtomixConsistentMap extends AbstractResource<AtomixConsistentMap>
     @Override
     public CompletableFuture<AtomixConsistentMap> open() {
         return super.open().thenApply(result -> {
+            client.onStateChange(state -> {
+                if (state == CopycatClient.State.CONNECTED && isListening()) {
+                    client.submit(new Listen());
+                }
+            });
             client.onEvent(CHANGE_SUBJECT, this::handleEvent);
             return result;
         });
@@ -307,5 +312,9 @@ public class AtomixConsistentMap extends AbstractResource<AtomixConsistentMap>
     @Override
     public Collection<Consumer<Status>> statusChangeListeners() {
         return ImmutableSet.copyOf(statusChangeListeners);
+    }
+
+    private boolean isListening() {
+        return !mapEventListeners.isEmpty();
     }
 }

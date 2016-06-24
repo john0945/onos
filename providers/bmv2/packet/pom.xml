@@ -34,12 +34,12 @@
     <dependencies>
         <dependency>
             <groupId>org.onosproject</groupId>
-            <artifactId>onos-drivers-bmv2</artifactId>
+            <artifactId>onos-core-common</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.onosproject</groupId>
-            <artifactId>onos-core-common</artifactId>
+            <artifactId>onos-bmv2-protocol-api</artifactId>
             <version>${project.version}</version>
         </dependency>
     </dependencies>

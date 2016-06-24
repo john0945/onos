@@ -204,10 +204,16 @@ public class OpenFlowMeterProvider extends AbstractProvider implements MeterProv
     }
 
     private void createStatsCollection(OpenFlowSwitch sw) {
-        if (isMeterSupported(sw)) {
+        if (sw != null && isMeterSupported(sw)) {
             MeterStatsCollector msc = new MeterStatsCollector(sw, POLL_INTERVAL);
             msc.start();
-            collectors.put(new Dpid(sw.getId()), msc);
+            stopCollectorIfNeeded(collectors.put(new Dpid(sw.getId()), msc));
+        }
+    }
+
+    private void stopCollectorIfNeeded(MeterStatsCollector collector) {
+        if (collector != null) {
+            collector.stop();
         }
     }
 
@@ -370,10 +376,7 @@ public class OpenFlowMeterProvider extends AbstractProvider implements MeterProv
 
         @Override
         public void switchRemoved(Dpid dpid) {
-            MeterStatsCollector msc = collectors.remove(dpid);
-            if (msc != null) {
-                msc.stop();
-            }
+            stopCollectorIfNeeded(collectors.remove(dpid));
         }
 
         @Override

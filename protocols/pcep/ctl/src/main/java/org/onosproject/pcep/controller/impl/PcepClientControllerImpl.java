@@ -49,6 +49,7 @@ import org.onosproject.pcep.controller.PcepLspStatus;
 import org.onosproject.pcep.controller.PcepNodeListener;
 import org.onosproject.pcep.controller.PcepPacketListener;
 import org.onosproject.pcep.controller.PcepSyncStatus;
+import org.onosproject.pcep.controller.SrpIdGenerators;
 import org.onosproject.pcep.controller.driver.PcepAgent;
 import org.onosproject.pcepio.exceptions.PcepParseException;
 import org.onosproject.pcepio.protocol.PcInitiatedLspRequest;
@@ -61,6 +62,7 @@ import org.onosproject.pcepio.protocol.PcepInitiateMsg;
 import org.onosproject.pcepio.protocol.PcepLspObject;
 import org.onosproject.pcepio.protocol.PcepMessage;
 import org.onosproject.pcepio.protocol.PcepReportMsg;
+import org.onosproject.pcepio.protocol.PcepSrpObject;
 import org.onosproject.pcepio.protocol.PcepStateReport;
 import org.onosproject.pcepio.types.PcepValueType;
 import org.onosproject.pcepio.types.StatefulIPv4LspIdentifiersTlv;
@@ -74,7 +76,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static org.onosproject.pcep.controller.PcepSyncStatus.IN_SYNC;
 import static org.onosproject.pcep.controller.PcepLspSyncAction.REMOVE;
 import static org.onosproject.pcep.controller.PcepLspSyncAction.SEND_UPDATE;
-import static org.onosproject.pcep.controller.PcepLspSyncAction.SEND_DELETE;
 import static org.onosproject.pcep.controller.PcepLspSyncAction.UNSTABLE;
 import static org.onosproject.pcepio.types.PcepErrorDetailInfo.ERROR_TYPE_19;
 import static org.onosproject.pcepio.types.PcepErrorDetailInfo.ERROR_VALUE_5;
@@ -236,8 +237,10 @@ public class PcepClientControllerImpl implements PcepClientController {
                 ListIterator<PcepStateReport> listIterator = ((PcepReportMsg) msg).getStateReportList().listIterator();
                 while (listIterator.hasNext()) {
                     PcepStateReport stateRpt = listIterator.next();
-                    if (stateRpt.getLspObject().getSFlag()) {
+                    PcepLspObject lspObj = stateRpt.getLspObject();
+                    if (lspObj.getSFlag()) {
                         if (pc.lspDbSyncStatus() != PcepSyncStatus.IN_SYNC) {
+                            log.debug("LSP DB sync started for PCC {}", pc.getPccId().id().toString());
                             // Initialize LSP DB sync and temporary cache.
                             pc.setLspDbSyncStatus(PcepSyncStatus.IN_SYNC);
                             pc.initializeSyncMsgList(pccId);
@@ -247,13 +250,16 @@ public class PcepClientControllerImpl implements PcepClientController {
 
                         // Don't send to provider as of now.
                         continue;
-                    } else {
-                        if (pc.lspDbSyncStatus() == PcepSyncStatus.IN_SYNC) {
+                    } else if (lspObj.getPlspId() == 0) {
+                        if (pc.lspDbSyncStatus() == PcepSyncStatus.IN_SYNC
+                                || pc.lspDbSyncStatus() == PcepSyncStatus.NOT_SYNCED) {
                             // Set end of LSPDB sync.
+                            log.debug("LSP DB sync completed for PCC {}", pc.getPccId().id().toString());
                             pc.setLspDbSyncStatus(PcepSyncStatus.SYNCED);
 
                             // Call packet provider to initiate label DB sync (only if PCECC capable).
                             if (pc.capability().pceccCapability()) {
+                                log.debug("Trigger label DB sync for PCC {}", pc.getPccId().id().toString());
                                 pc.setLabelDbSyncStatus(IN_SYNC);
                                 for (PcepPacketListener l : pcepPacketListener) {
                                     l.sendPacketIn(pccId);
@@ -429,10 +435,17 @@ public class PcepClientControllerImpl implements PcepClientController {
             }
 
             List<PcepStateReport> syncStateRptList = pc.getSyncMsgList(pccId);
+            if (syncStateRptList == null) {
+                // When there are no LSPs to sync, directly end-of-sync PCRpt will come and the
+                // list will be null.
+                syncStateRptList = Collections.EMPTY_LIST;
+                log.debug("No LSPs reported from PCC during sync.");
+            }
+
             Iterator<PcepStateReport> stateRptListIterator = syncStateRptList.iterator();
 
             // For every report, fetch PLSP id, local LSP id and symbolic path name from the message.
-            while (syncStateRptList.iterator().hasNext()) {
+            while (stateRptListIterator.hasNext()) {
                 PcepStateReport stateRpt = stateRptListIterator.next();
                 Tunnel tunnel = null;
 
@@ -475,8 +488,10 @@ public class PcepClientControllerImpl implements PcepClientController {
                     if (lspObj.getCFlag() && !lspObj.getRFlag()) {
                         // For initiated LSP, need to send PCInit delete msg.
                         try {
+                            PcepSrpObject srpobj = pc.factory().buildSrpObject().setSrpID(SrpIdGenerators.create())
+                                    .setRFlag(true).build();
                             PcInitiatedLspRequest releaseLspRequest = pc.factory().buildPcInitiatedLspRequest()
-                                    .setLspObject(lspObj).build();
+                                    .setLspObject(lspObj).setSrpObject(srpobj).build();
                             LinkedList<PcInitiatedLspRequest> llPcInitiatedLspRequestList
                                     = new LinkedList<PcInitiatedLspRequest>();
                             llPcInitiatedLspRequestList.add(releaseLspRequest);
@@ -484,15 +499,12 @@ public class PcepClientControllerImpl implements PcepClientController {
                             PcepInitiateMsg pcInitiateMsg = pc.factory().buildPcepInitiateMsg()
                                     .setPcInitiatedLspRequestList(llPcInitiatedLspRequestList).build();
 
-                            for (PcepEventListener l : pcepEventListener) {
-                                l.handleEndOfSyncAction(pccId, pcInitiateMsg, SEND_DELETE);
-                            }
-
+                            pc.sendMessage(Collections.singletonList(pcInitiateMsg));
                         } catch (PcepParseException e) {
                             log.error("Exception occured while sending initiate delete message {}", e.getMessage());
                         }
+                        continue;
                     }
-                    continue;
                 }
 
                 if (!lspObj.getCFlag()) {

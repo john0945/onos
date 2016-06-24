@@ -28,7 +28,6 @@ import java.util.Set;
 import org.onlab.packet.IpAddress;
 import org.onlab.packet.IpPrefix;
 import org.onlab.packet.MplsLabel;
-import org.onlab.packet.TpPort;
 import org.onosproject.core.ApplicationId;
 import org.onosproject.incubator.net.resource.label.DefaultLabelResource;
 import org.onosproject.incubator.net.resource.label.LabelResource;
@@ -184,7 +183,7 @@ public final class PceccSrTeBeHandler {
 
         // Check whether node-label was already configured for this specific device.
         if (pceStore.getGlobalNodeLabel(specificDeviceId) != null) {
-            log.error("Node label was already configured for device {}.", specificDeviceId.toString());
+            log.debug("Node label was already configured for device {}.", specificDeviceId.toString());
             return false;
         }
 
@@ -228,12 +227,15 @@ public final class PceccSrTeBeHandler {
 
             // Push to device
             // Push label information of specificDeviceId to otherDevId in list and vice versa.
-            advertiseNodeLabelRule(otherDevId, specificLabelId,
-                                   IpPrefix.valueOf(IpAddress.valueOf(specificLsrId), PREFIX_LENGTH),
-                                   Objective.Operation.ADD, false);
-            advertiseNodeLabelRule(specificDeviceId, otherLabelId,
-                                   IpPrefix.valueOf(IpAddress.valueOf(otherLsrId), PREFIX_LENGTH),
-                                   Objective.Operation.ADD, false);
+            if (!otherDevId.equals(specificDeviceId)) {
+                advertiseNodeLabelRule(otherDevId, specificLabelId,
+                                       IpPrefix.valueOf(IpAddress.valueOf(specificLsrId), PREFIX_LENGTH),
+                                       Objective.Operation.ADD, false);
+
+                advertiseNodeLabelRule(specificDeviceId, otherLabelId,
+                                       IpPrefix.valueOf(IpAddress.valueOf(otherLsrId), PREFIX_LENGTH),
+                                       Objective.Operation.ADD, false);
+            }
         }
 
         return true;
@@ -404,15 +406,6 @@ public final class PceccSrTeBeHandler {
             DeviceId deviceId = null;
             for (Iterator<Link> iterator = linkList.iterator(); iterator.hasNext();) {
                 link = iterator.next();
-                // Add source device label now
-                deviceId = link.src().deviceId();
-                nodeLabelId = pceStore.getGlobalNodeLabel(deviceId);
-                if (nodeLabelId == null) {
-                    log.error("Unable to find node label for a device id {} in store.", deviceId.toString());
-                    return null;
-                }
-                labelStack.add(nodeLabelId);
-
                 // Add adjacency label for this link
                 adjLabelId = pceStore.getAdjLabel(link);
                 if (adjLabelId == null) {
@@ -420,11 +413,7 @@ public final class PceccSrTeBeHandler {
                     return null;
                 }
                 labelStack.add(adjLabelId);
-            }
 
-            // This is the last link in path
-            // Add destination device label now.
-            if (link != null) {
                 deviceId = link.dst().deviceId();
                 nodeLabelId = pceStore.getGlobalNodeLabel(deviceId);
                 if (nodeLabelId == null) {
@@ -519,8 +508,8 @@ public final class PceccSrTeBeHandler {
         TrafficSelector.Builder selectorBuilder = DefaultTrafficSelector.builder();
 
         selectorBuilder.matchMplsLabel(MplsLabel.mplsLabel(labelId.id().intValue()));
-        selectorBuilder.matchTcpSrc(TpPort.tpPort((int) srcPortNum.toLong()));
-        selectorBuilder.matchTcpDst(TpPort.tpPort((int) dstPortNum.toLong()));
+        selectorBuilder.matchIPSrc(IpPrefix.valueOf((int) srcPortNum.toLong(), 32));
+        selectorBuilder.matchIPDst(IpPrefix.valueOf((int) dstPortNum.toLong(), 32));
 
         TrafficTreatment treatment = DefaultTrafficTreatment.builder().build();
 

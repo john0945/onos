@@ -16,6 +16,7 @@
 package org.onosproject.net.flowobjective.impl;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.felix.scr.annotations.Activate;
 import org.apache.felix.scr.annotations.Component;
 import org.apache.felix.scr.annotations.Deactivate;
@@ -55,21 +56,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 import static org.onlab.util.Tools.groupedThreads;
 import static org.onosproject.security.AppGuard.checkPermission;
-import static org.onosproject.security.AppPermission.Type.*;
-
-
+import static org.onosproject.security.AppPermission.Type.FLOWRULE_WRITE;
 
 /**
  * Provides implementation of the flow objective programming service.
@@ -124,7 +121,7 @@ public class FlowObjectiveManager implements FlowObjectiveService {
 
     protected ServiceDirectory serviceDirectory = new DefaultServiceDirectory();
 
-    private Map<Integer, Set<PendingNext>> pendingForwards = Maps.newConcurrentMap();
+    private final Map<Integer, Set<PendingNext>> pendingForwards = Maps.newConcurrentMap();
 
     // local store to track which nextObjectives were sent to which device
     // for debugging purposes
@@ -237,20 +234,33 @@ public class FlowObjectiveManager implements FlowObjectiveService {
     public void initPolicy(String policy) {}
 
     private boolean queueObjective(DeviceId deviceId, ForwardingObjective fwd) {
-        if (fwd.nextId() != null &&
-                flowObjectiveStore.getNextGroup(fwd.nextId()) == null) {
-            log.trace("Queuing forwarding objective for nextId {}", fwd.nextId());
-            // TODO: change to computeIfAbsent
-            Set<PendingNext> newset = Collections.newSetFromMap(
-                                          new ConcurrentHashMap<PendingNext, Boolean>());
-            newset.add(new PendingNext(deviceId, fwd));
-            Set<PendingNext> pnext = pendingForwards.putIfAbsent(fwd.nextId(), newset);
-            if (pnext != null) {
-                pnext.add(new PendingNext(deviceId, fwd));
-            }
-            return true;
+        if (fwd.nextId() == null ||
+                flowObjectiveStore.getNextGroup(fwd.nextId()) != null) {
+            // fast path
+            return false;
         }
-        return false;
+        boolean queued = false;
+        synchronized (pendingForwards) {
+            // double check the flow objective store, because this block could run
+            // after a notification arrives
+            if (flowObjectiveStore.getNextGroup(fwd.nextId()) == null) {
+                pendingForwards.compute(fwd.nextId(), (id, pending) -> {
+                    PendingNext next = new PendingNext(deviceId, fwd);
+                    if (pending == null) {
+                        return Sets.newHashSet(next);
+                    } else {
+                        pending.add(next);
+                        return pending;
+                    }
+                });
+                queued = true;
+            }
+        }
+        if (queued) {
+            log.debug("Queued forwarding objective {} for nextId {} meant for device {}",
+                      fwd.id(), fwd.nextId(), deviceId);
+        }
+        return queued;
     }
 
     // Retrieves the device pipeline behaviour from the cache.
@@ -395,10 +405,14 @@ public class FlowObjectiveManager implements FlowObjectiveService {
         public void notify(ObjectiveEvent event) {
             if (event.type() == Type.ADD) {
                 log.debug("Received notification of obj event {}", event);
-                Set<PendingNext> pending = pendingForwards.remove(event.subject());
+                Set<PendingNext> pending;
+                synchronized (pendingForwards) {
+                    // needs to be synchronized for queueObjective lookup
+                    pending = pendingForwards.remove(event.subject());
+                }
 
                 if (pending == null) {
-                    log.warn("Nothing pending for this obj event {}", event);
+                    log.debug("Nothing pending for this obj event {}", event);
                     return;
                 }
 
@@ -457,7 +471,7 @@ public class FlowObjectiveManager implements FlowObjectiveService {
     public List<String> getNextMappings() {
         List<String> mappings = new ArrayList<>();
         Map<Integer, NextGroup> allnexts = flowObjectiveStore.getAllGroups();
-        // XXX if the NextGroup upon decoding stored info of the deviceId
+        // XXX if the NextGroup after de-serialization actually stored info of the deviceId
         // then info on any nextObj could be retrieved from one controller instance.
         // Right now the drivers on one instance can only fetch for next-ids that came
         // to them.
@@ -480,5 +494,22 @@ public class FlowObjectiveManager implements FlowObjectiveService {
             }
         }
         return mappings;
+    }
+
+    @Override
+    public List<String> getPendingNexts() {
+        List<String> pendingNexts = new ArrayList<>();
+        for (Integer nextId : pendingForwards.keySet()) {
+            Set<PendingNext> pnext = pendingForwards.get(nextId);
+            StringBuffer pend = new StringBuffer();
+            pend.append("Next Id: ").append(Integer.toString(nextId))
+                .append(" :: ");
+            for (PendingNext pn : pnext) {
+                pend.append(Integer.toString(pn.forwardingObjective().id()))
+                    .append(" ");
+            }
+            pendingNexts.add(pend.toString());
+        }
+        return pendingNexts;
     }
 }

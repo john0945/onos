@@ -19,11 +19,23 @@ rm -fr onos-*/
 [ -f $ONOS_TAR ] && tar zxf $ONOS_TAR
 
 # Change into the ONOS home directory
-cd onos-*
+cd onos-*/
 export ONOS_HOME=$PWD
 
 # FIXME: for now we're running using the karaf client; later use raw SSH
 unset ONOS_USE_SSH
+
+# Create config/cluster.json (cluster metadata)
+IP=${ONOS_IP:-127.0.0.1}
+echo "Creating local cluster configs for IP $IP..."
+[ -d $ONOS_HOME/config ] || mkdir -p $ONOS_HOME/config
+cat > $ONOS_HOME/config/cluster.json <<EOF
+{
+  "name": "default",
+  "nodes": [ {"id": "$IP", "ip": "$IP", "port": 9876 } ],
+  "partitions": [ { "id": 1, "members": [ "$IP" ] } ]
+}
+EOF
 
 # Start ONOS as a server, but include any specified options
 ./bin/onos-service server "$@" &>onos.log &
@@ -42,3 +54,4 @@ until [ $RETRY_COUNT -le 0 ]; do
     sleep 1
 done
 echo "Fail to open karaf.log"
+

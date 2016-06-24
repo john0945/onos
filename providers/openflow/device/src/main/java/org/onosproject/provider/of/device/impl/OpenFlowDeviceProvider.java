@@ -148,8 +148,9 @@ public class OpenFlowDeviceProvider extends AbstractProvider implements DevicePr
 
     private final InternalDeviceProvider listener = new InternalDeviceProvider();
 
-    static final int POLL_INTERVAL = 5;
-    @Property(name = "PortStatsPollFrequency", intValue = POLL_INTERVAL,
+    private static final String POLL_PROP_NAME = "portStatsPollFrequency";
+    private static final int POLL_INTERVAL = 5;
+    @Property(name = POLL_PROP_NAME, intValue = POLL_INTERVAL,
     label = "Frequency (in seconds) for polling switch Port statistics")
     private int portStatsPollFrequency = POLL_INTERVAL;
 
@@ -180,6 +181,7 @@ public class OpenFlowDeviceProvider extends AbstractProvider implements DevicePr
         controller.removeListener(listener);
         providerRegistry.unregister(this);
         collectors.values().forEach(PortStatsCollector::stop);
+        collectors.clear();
         providerService = null;
         LOG.info("Stopped");
     }
@@ -189,7 +191,7 @@ public class OpenFlowDeviceProvider extends AbstractProvider implements DevicePr
         Dictionary<?, ?> properties = context.getProperties();
         int newPortStatsPollFrequency;
         try {
-            String s = get(properties, "PortStatsPollFrequency");
+            String s = get(properties, POLL_PROP_NAME);
             newPortStatsPollFrequency = isNullOrEmpty(s) ? portStatsPollFrequency : Integer.parseInt(s.trim());
 
         } catch (NumberFormatException | ClassCastException e) {
@@ -374,14 +376,19 @@ public class OpenFlowDeviceProvider extends AbstractProvider implements DevicePr
             providerService.deviceConnected(did, description);
             providerService.updatePorts(did, buildPortDescriptions(sw));
 
-            PortStatsCollector psc =
-                    new PortStatsCollector(sw, portStatsPollFrequency);
+            PortStatsCollector psc = new PortStatsCollector(sw, portStatsPollFrequency);
+            stopCollectorIfNeeded(collectors.put(dpid, psc));
             psc.start();
-            collectors.put(dpid, psc);
 
             //figure out race condition for collectors.remove() and collectors.put()
             if (controller.getSwitch(dpid) == null) {
                 switchRemoved(dpid);
+            }
+        }
+
+        private void stopCollectorIfNeeded(PortStatsCollector collector) {
+            if (collector != null) {
+                collector.stop();
             }
         }
 
@@ -391,11 +398,7 @@ public class OpenFlowDeviceProvider extends AbstractProvider implements DevicePr
                 return;
             }
             providerService.deviceDisconnected(deviceId(uri(dpid)));
-
-            PortStatsCollector collector = collectors.remove(dpid);
-            if (collector != null) {
-                collector.stop();
-            }
+            stopCollectorIfNeeded(collectors.remove(dpid));
         }
 
         @Override
@@ -785,7 +788,7 @@ public class OpenFlowDeviceProvider extends AbstractProvider implements DevicePr
                             OFPortStatsReply portStatsReply = (OFPortStatsReply) msg;
                             List<OFPortStatsEntry> portStatsReplyList = portStatsReplies.get(dpid);
                             if (portStatsReplyList == null) {
-                                portStatsReplyList = Lists.newArrayList();
+                                portStatsReplyList = Lists.newCopyOnWriteArrayList();
                             }
                             portStatsReplyList.addAll(portStatsReply.getEntries());
                             portStatsReplies.put(dpid, portStatsReplyList);

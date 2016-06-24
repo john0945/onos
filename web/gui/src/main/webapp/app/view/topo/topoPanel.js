@@ -30,10 +30,12 @@
         idSum = 'topo-p-summary',
         idDet = 'topo-p-detail',
         panelOpts = {
-            width: 268
+            width: 260          // summary and detail panel width
         },
-        sumMax = 262,
-        padTop = 20,
+        sumMax = 226,           // summary panel max height
+        padTop = 16,            // summary panel padding below masthead
+        padding = 16,           // panel internal padding
+        padFudge = padTop + 2 * padding,
         devPath = 'device';
 
     // internal state
@@ -90,8 +92,7 @@
         //    only adjusts if the body content would be 10px or larger
         function adjustHeight(fromTop, max) {
             var totalPHeight, avSpace,
-                overflow = 0,
-                pdg = 30;
+                overflow = 0;
 
             if (!fromTop) {
                 $log.warn('adjustHeight: height from top of page not given');
@@ -103,11 +104,12 @@
                 return null;
             }
 
+            p.el().style('top', fromTop + 'px');
             p.el().style('height', null);
             body.style('height', null);
 
             totalPHeight = fromTop + p.height();
-            avSpace = fs.windowSize(pdg).height;
+            avSpace = fs.windowSize(padFudge).height;
 
             if (totalPHeight >= avSpace) {
                 overflow = totalPHeight - avSpace;
@@ -123,12 +125,13 @@
             }
 
             if (!_adjustBody(fs.noPxStyle(body, 'height') - overflow)) {
-                return;
+                return p.height();
             }
 
             if (max && p.height() > max) {
                 _adjustBody(fs.noPxStyle(body, 'height') - (p.height() - max));
             }
+            return p.height();
         }
 
         return {
@@ -188,8 +191,11 @@
                     w: $window.innerWidth
                 };
             }, function () {
-                summary.adjustHeight(sumFromTop, sumMax);
-                detail.adjustHeight(detail.ypos.current);
+                var h = summary.adjustHeight(sumFromTop, sumMax),
+                    ss = summary.panel().isVisible(),
+                    dtop = h && ss ? sumFromTop + h + padFudge : 0,
+                    dy = dtop || ss ? detail.ypos.current : sumFromTop;
+                detail.adjustHeight(dy);
             }
         );
     }
@@ -205,14 +211,9 @@
                 .append('svg'),
             title = summary.appendHeader('h2'),
             table = summary.appendBody('table'),
-            tbody = table.append('tbody'),
-            glyphId = data.type || 'node';
+            tbody = table.append('tbody');
 
-        gs.addGlyph(svg, glyphId, 40);
-
-        if (glyphId === 'node') {
-            gs.addGlyph(svg, 'bird', 24, true, [8,12]);
-        }
+        gs.addGlyph(svg, 'bird', 24, 0, [1,1]);
 
         title.text(data.title);
         listProps(tbody, data);
@@ -239,7 +240,7 @@
             tbody = table.append('tbody'),
             navFn;
 
-        gs.addGlyph(svg, (data.type || 'unknown'), 40);
+        gs.addGlyph(svg, (data.type || 'unknown'), 26);
         title.text(data.title);
 
         // only add navigation when displaying a device
@@ -329,7 +330,7 @@
             edgeLink = data.type() === 'hostLink',
             order = edgeLink ? edgeOrder : coreOrder;
 
-        gs.addGlyph(svg, 'ports', 40);
+        gs.addGlyph(svg, 'ports', 26);
         title.text('Link');
 
         var linkData = {
@@ -431,7 +432,7 @@
 
     function augmentDetailPanel() {
         var d = detail,
-            downPos = sumFromTop + sumMax + 20;
+            downPos = sumFromTop + sumMax + padFudge;
         d.ypos = { up: sumFromTop, down: downPos, current: downPos};
 
         d._move = function (y, cb) {

@@ -48,6 +48,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -82,10 +83,6 @@ public class ConsistentResourceStore extends AbstractStore<ResourceEvent, Resour
             .register(VlanIdCodec.class)
             .register(MplsLabelCodec.class)
             .build());
-
-    // TODO: We should provide centralized values for this
-    static final int MAX_RETRIES = 5;
-    static final int RETRY_DELAY = 1_000; // millis
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
     protected StorageService service;
@@ -299,6 +296,17 @@ public class ConsistentResourceStore extends AbstractStore<ResourceEvent, Resour
                 .build();
     }
 
+    @Override
+    public <T> Set<Resource> getChildResources(DiscreteResourceId parent, Class<T> cls) {
+        checkNotNull(parent);
+        checkNotNull(cls);
+
+        return ImmutableSet.<Resource>builder()
+                .addAll(discreteStore.getChildResources(parent, cls))
+                .addAll(continuousStore.getChildResources(parent, cls))
+                .build();
+    }
+
     // computational complexity: O(n) where n is the number of the children of the parent
     @Override
     public <T> Collection<Resource> getAllocatedResources(DiscreteResourceId parent, Class<T> cls) {
@@ -337,14 +345,14 @@ public class ConsistentResourceStore extends AbstractStore<ResourceEvent, Resour
         // it's assumed that the passed "values" is non-empty
 
         // This is 2-pass scan. Nicer to have 1-pass scan
-        List<DiscreteResource> discreteValues = values.stream()
+        Set<DiscreteResource> discreteValues = values.stream()
                 .filter(x -> x instanceof DiscreteResource)
                 .map(x -> (DiscreteResource) x)
-                .collect(Collectors.toList());
-        List<ContinuousResource> continuousValues = values.stream()
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<ContinuousResource> continuousValues = values.stream()
                 .filter(x -> x instanceof ContinuousResource)
                 .map(x -> (ContinuousResource) x)
-                .collect(Collectors.toList());
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
         return discreteTxStore.register(key, discreteValues)
                 && continuousTxStore.register(key, continuousValues);
@@ -366,14 +374,14 @@ public class ConsistentResourceStore extends AbstractStore<ResourceEvent, Resour
         // it's assumed that the passed "values" is non-empty
 
         // This is 2-pass scan. Nicer to have 1-pass scan
-        List<DiscreteResource> discreteValues = values.stream()
+        Set<DiscreteResource> discreteValues = values.stream()
                 .filter(x -> x instanceof DiscreteResource)
                 .map(x -> (DiscreteResource) x)
-                .collect(Collectors.toList());
-        List<ContinuousResource> continuousValues = values.stream()
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<ContinuousResource> continuousValues = values.stream()
                 .filter(x -> x instanceof ContinuousResource)
                 .map(x -> (ContinuousResource) x)
-                .collect(Collectors.toList());
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
         return discreteTxStore.unregister(key, discreteValues)
                 && continuousTxStore.unregister(key, continuousValues);

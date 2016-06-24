@@ -179,6 +179,14 @@ public class IntentPartitionManager implements IntentPartitionService {
 
         int myShare = (int) Math.ceil((double) NUM_PARTITIONS / activeNodes);
 
+        // First make sure this node is a candidate for all partitions.
+        IntStream.range(0, NUM_PARTITIONS)
+                 .mapToObj(this::getPartitionPath)
+                 .map(leadershipService::getLeadership)
+                 .filter(leadership -> !leadership.candidates().contains(localNodeId))
+                 .map(Leadership::topic)
+                 .forEach(leadershipService::runForLeadership);
+
         List<String> myPartitions = IntStream.range(0, NUM_PARTITIONS)
                                              .mapToObj(this::getPartitionPath)
                                              .map(leadershipService::getLeadership)
@@ -189,10 +197,15 @@ public class IntentPartitionManager implements IntentPartitionService {
 
         int relinquish = myPartitions.size() - myShare;
 
+
         for (int i = 0; i < relinquish; i++) {
             String topic = myPartitions.get(i);
-            leadershipService.withdraw(topic);
-            executor.schedule(() -> recontest(topic), BACKOFF_TIME, TimeUnit.SECONDS);
+            // Wait till all active nodes are in contention for partition ownership.
+            // This avoids too many relinquish/reclaim cycles.
+            if (leadershipService.getCandidates(topic).size() == activeNodes) {
+                leadershipService.withdraw(topic);
+                executor.schedule(() -> recontest(topic), BACKOFF_TIME, TimeUnit.SECONDS);
+            }
         }
     }
 

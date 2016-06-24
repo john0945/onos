@@ -72,8 +72,8 @@ public class PcepClientImpl implements PcepClientDriver {
     private byte deadTime;
     private byte sessionId;
     private PcepPacketStatsImpl pktStats;
-    private Map<LspKey, Boolean> lspDelegationInfo;
-    private Map<PccId, List<PcepStateReport>> sycRptCache = new HashMap<>();
+    private Map<LspKey, Boolean> lspDelegationInfo = new HashMap<>();
+    private Map<PccId, List<PcepStateReport>> syncRptCache = new HashMap<>();
 
     @Override
     public void init(PccId pccId, PcepVersion pcepVersion, PcepPacketStats pktStats) {
@@ -186,6 +186,7 @@ public class PcepClientImpl implements PcepClientDriver {
 
     @Override
     public void setLspDbSyncStatus(PcepSyncStatus syncStatus) {
+        log.debug("LSP DB sync status set from {} to {}", this.lspDbSyncStatus, syncStatus);
         this.lspDbSyncStatus = syncStatus;
     }
 
@@ -199,7 +200,7 @@ public class PcepClientImpl implements PcepClientDriver {
 
         PcepSyncStatus syncOldStatus = labelDbSyncStatus();
         this.labelDbSyncStatus = syncStatus;
-
+        log.debug("Label DB sync status set from {} to {}", syncOldStatus, syncStatus);
         if ((syncOldStatus == PcepSyncStatus.IN_SYNC) && (syncStatus == PcepSyncStatus.SYNCED)) {
             // Perform end of LSP DB sync actions.
             this.agent.analyzeSyncMsgList(pccId);
@@ -267,24 +268,24 @@ public class PcepClientImpl implements PcepClientDriver {
     @Override
     public void initializeSyncMsgList(PccId pccId) {
         List<PcepStateReport> rptMsgList = new LinkedList<>();
-        sycRptCache.put(pccId, rptMsgList);
+        syncRptCache.put(pccId, rptMsgList);
     }
 
     @Override
     public List<PcepStateReport> getSyncMsgList(PccId pccId) {
-        return sycRptCache.get(pccId);
+        return syncRptCache.get(pccId);
     }
 
     @Override
     public void removeSyncMsgList(PccId pccId) {
-        sycRptCache.remove(pccId);
+        syncRptCache.remove(pccId);
     }
 
     @Override
     public void addSyncMsgToList(PccId pccId, PcepStateReport rptMsg) {
-        List<PcepStateReport> rptMsgList = sycRptCache.get(pccId);
+        List<PcepStateReport> rptMsgList = syncRptCache.get(pccId);
         rptMsgList.add(rptMsg);
-        sycRptCache.put(pccId, rptMsgList);
+        syncRptCache.put(pccId, rptMsgList);
     }
 
     @Override

@@ -116,6 +116,7 @@ import static org.onosproject.incubator.net.tunnel.Tunnel.Type.MPLS;
 import static org.onosproject.incubator.net.tunnel.Tunnel.State.INIT;
 import static org.onosproject.incubator.net.tunnel.Tunnel.State.ESTABLISHED;
 import static org.onosproject.incubator.net.tunnel.Tunnel.State.UNSTABLE;
+import static org.onosproject.incubator.net.tunnel.Tunnel.State.FAILED;
 import static org.onosproject.pce.pceservice.LspType.WITH_SIGNALLING;
 import static org.onosproject.pce.pceservice.LspType.SR_WITHOUT_SIGNALLING;
 import static org.onosproject.pce.pceservice.LspType.WITHOUT_SIGNALLING_AND_WITHOUT_SR;
@@ -254,6 +255,7 @@ public class PceManager implements PceService {
 
         tunnelConsumerIdGen = coreService.getIdGenerator(TUNNEL_CONSUMER_ID_GEN_TOPIC);
         localLspIdIdGen = coreService.getIdGenerator(LOCAL_LSP_ID_GEN_TOPIC);
+        localLspIdIdGen.getNewId(); // To prevent 0, the 1st value generated from being used in protocol.
         localLspIdFreeList = storageService.<Short>setBuilder()
                 .withName("pcepLocalLspIdDeletedList")
                 .withSerializer(Serializer.using(KryoNamespaces.API))
@@ -515,7 +517,14 @@ public class PceManager implements PceService {
             }
 
             if (existingBwValue != null) {
-                shBwConstraint = new SharedBandwidthConstraint(links, existingBwValue, bwConstraint.bandwidth());
+                if (bwConstraintValue == 0) {
+                    bwConstraintValue = existingBwValue.bps();
+                }
+                //If bandwidth constraints not specified , take existing bandwidth for shared bandwidth calculation
+                shBwConstraint = bwConstraint != null ? new SharedBandwidthConstraint(links,
+                        existingBwValue, bwConstraint.bandwidth()) : new SharedBandwidthConstraint(links,
+                        existingBwValue, existingBwValue);
+
                 constraints.add(shBwConstraint);
             }
         } else {
@@ -595,6 +604,18 @@ public class PceManager implements PceService {
             PceccTunnelInfo pceccTunnelInfo = new PceccTunnelInfo(null, consumerId);
             pceStore.addTunnelInfo(updatedTunnelId, pceccTunnelInfo);
         }
+
+        // For CR cases, download labels and send update message.
+        if (lspType == WITHOUT_SIGNALLING_AND_WITHOUT_SR) {
+            Tunnel tunnelForlabelDownload = new DefaultTunnel(null, tunnel.src(), tunnel.dst(), MPLS, INIT, null,
+                                                              updatedTunnelId, tunnel.tunnelName(), computedPath,
+                                                              labelStack, annotationBuilder.build());
+
+            if (!crHandler.allocateLabel(tunnelForlabelDownload)) {
+                log.error("Unable to allocate labels for the tunnel {}.", tunnel.toString());
+            }
+        }
+
         return true;
     }
 
@@ -893,9 +914,7 @@ public class PceManager implements PceService {
 
         // Check whether device has SR-TE Capability
         if (cfg.labelStackCap()) {
-            if (!srTeHandler.allocateNodeLabel(deviceId, lsrId)) {
-                log.error("Node label allocation for a device id {} has failed.", deviceId.toString());
-            }
+            srTeHandler.allocateNodeLabel(deviceId, lsrId);
         }
     }
 
@@ -974,10 +993,7 @@ public class PceManager implements PceService {
 
         // Check whether device has SR-TE Capability
         if (cfg.labelStackCap()) {
-            if (!srTeHandler.allocateAdjacencyLabel(link)) {
-                log.error("Unable to allocate adjacency label for a link {}.", link.toString());
-                return;
-            }
+            srTeHandler.allocateAdjacencyLabel(link);
         }
 
         return;
@@ -1042,6 +1058,18 @@ public class PceManager implements PceService {
                 // Node-label allocation is being done during Label DB Sync.
                 // So, when device is detected, no need to do node-label
                 // allocation.
+                String lsrId = specificDevice.annotations().value(LSRID);
+                if (lsrId != null) {
+                    pceStore.addLsrIdDevice(lsrId, specificDevice.id());
+
+                    // Search in failed DB sync store. If found, trigger label DB sync.
+                    DeviceId pccDeviceId = DeviceId.deviceId(lsrId);
+                    if (pceStore.hasPccLsr(pccDeviceId)) {
+                        log.debug("Continue to perform label DB sync for device {}.", pccDeviceId.toString());
+                        syncLabelDb(pccDeviceId);
+                        pceStore.removePccLsr(pccDeviceId);
+                    }
+                }
                 break;
 
             case DEVICE_REMOVED:
@@ -1049,6 +1077,11 @@ public class PceManager implements PceService {
                 if (mastershipService.getLocalRole(specificDevice.id()) == MastershipRole.MASTER) {
                     releaseNodeLabel(specificDevice);
                 }
+
+                if (specificDevice.annotations().value(LSRID) != null) {
+                    pceStore.removeLsrIdDevice(specificDevice.annotations().value(LSRID));
+                }
+
                 break;
 
             default:
@@ -1151,6 +1184,11 @@ public class PceManager implements PceService {
                                                                   links.get(links.size() - 1).dst().deviceId(),
                                                                   tunnel.tunnelName().value(), constraints, lspType));
                 }
+
+                if (tunnel.state() == FAILED) {
+                    // Check whether this ONOS instance is master, if yes, recompute and send update.
+                    checkForMasterAndUpdateTunnel(tunnel.path().src().deviceId(), tunnel);
+                }
                 break;
 
             case TUNNEL_REMOVED:
@@ -1209,16 +1247,13 @@ public class PceManager implements PceService {
                 if (cfg.labelStackCap()) {
                     if (mastershipService.getLocalRole(deviceId) == MastershipRole.MASTER) {
                         // Allocate node-label
-                        if (!srTeHandler.allocateNodeLabel(deviceId, lsrId)) {
-                            log.error("Node label allocation for a device id {} has failed.", deviceId.toString());
-                        }
+                        srTeHandler.allocateNodeLabel(deviceId, lsrId);
 
                         // Allocate adjacency label to links which are
                         // originated from this specific device id
                         Set<Link> links = linkService.getDeviceEgressLinks(deviceId);
                         for (Link link : links) {
                             if (!srTeHandler.allocateAdjacencyLabel(link)) {
-                                log.debug("Unable to allocate adjacency labels for a link {}.", link.toString());
                                 return;
                             }
                         }
@@ -1234,53 +1269,65 @@ public class PceManager implements PceService {
     private boolean syncLabelDb(DeviceId deviceId) {
         checkNotNull(deviceId);
 
-        Device specificDevice = deviceService.getDevice(deviceId);
-        if (specificDevice == null) {
-            log.error("Unable to find device for specific device id {}.", deviceId.toString());
+        DeviceId actualDevcieId = pceStore.getLsrIdDevice(deviceId.toString());
+        if (actualDevcieId == null) {
+            log.error("Device not available {}.", deviceId.toString());
+            pceStore.addPccLsr(deviceId);
             return false;
         }
 
-        Map<DeviceId, LabelResourceId> globalNodeLabelMap = pceStore.getGlobalNodeLabels();
-
-        for (Entry<DeviceId, LabelResourceId> entry : globalNodeLabelMap.entrySet()) {
-
-            // Convert from DeviceId to TunnelEndPoint
-            Device srcDevice = deviceService.getDevice(entry.getKey());
-
-            /*
-             * If there is a slight difference in timing such that if device subsystem has removed the device but PCE
-             * store still has it, just ignore such devices.
-             */
-            if (srcDevice == null) {
-                continue;
-            }
-
-            String srcLsrId = srcDevice.annotations().value(LSRID);
-            if (srcLsrId == null) {
-                continue;
-            }
-
-            srTeHandler.advertiseNodeLabelRule(deviceId,
-                                               entry.getValue(),
-                                               IpPrefix.valueOf(IpAddress.valueOf(srcLsrId), PREFIX_LENGTH),
-                                               Objective.Operation.ADD, false);
+        Device specificDevice = deviceService.getDevice(actualDevcieId);
+        if (specificDevice == null) {
+            log.error("Unable to find device for specific device id {}.", actualDevcieId.toString());
+            return false;
         }
 
-        Map<Link, LabelResourceId> adjLabelMap = pceStore.getAdjLabels();
-        for (Entry<Link, LabelResourceId> entry : adjLabelMap.entrySet()) {
-            if (entry.getKey().src().deviceId().equals(deviceId)) {
-                srTeHandler.installAdjLabelRule(deviceId,
-                                                entry.getValue(),
-                                                entry.getKey().src().port(),
-                                                entry.getKey().dst().port(),
-                                                Objective.Operation.ADD);
+        if (pceStore.getGlobalNodeLabel(actualDevcieId) != null) {
+            Map<DeviceId, LabelResourceId> globalNodeLabelMap = pceStore.getGlobalNodeLabels();
+
+            for (Entry<DeviceId, LabelResourceId> entry : globalNodeLabelMap.entrySet()) {
+
+                // Convert from DeviceId to TunnelEndPoint
+                Device srcDevice = deviceService.getDevice(entry.getKey());
+
+                /*
+                 * If there is a slight difference in timing such that if device subsystem has removed the device but
+                 * PCE store still has it, just ignore such devices.
+                 */
+                if (srcDevice == null) {
+                    continue;
+                }
+
+                String srcLsrId = srcDevice.annotations().value(LSRID);
+                if (srcLsrId == null) {
+                    continue;
+                }
+
+                srTeHandler.advertiseNodeLabelRule(actualDevcieId,
+                                                   entry.getValue(),
+                                                   IpPrefix.valueOf(IpAddress.valueOf(srcLsrId), PREFIX_LENGTH),
+                                                   Objective.Operation.ADD, false);
+            }
+
+            Map<Link, LabelResourceId> adjLabelMap = pceStore.getAdjLabels();
+            for (Entry<Link, LabelResourceId> entry : adjLabelMap.entrySet()) {
+                if (entry.getKey().src().deviceId().equals(actualDevcieId)) {
+                    srTeHandler.installAdjLabelRule(actualDevcieId,
+                                                    entry.getValue(),
+                                                    entry.getKey().src().port(),
+                                                    entry.getKey().dst().port(),
+                                                    Objective.Operation.ADD);
+                }
             }
         }
 
-        srTeHandler.advertiseNodeLabelRule(deviceId,
+        srTeHandler.advertiseNodeLabelRule(actualDevcieId,
                                            LabelResourceId.labelResourceId(0),
                                            IpPrefix.valueOf(END_OF_SYNC_IP_PREFIX),
                                            Objective.Operation.ADD, true);
+
+        log.debug("End of label DB sync for device {}", actualDevcieId);
+
         if (mastershipService.getLocalRole(specificDevice.id()) == MastershipRole.MASTER) {
             // Allocate node-label to this specific device.
             allocateNodeLabel(specificDevice);
@@ -1304,6 +1351,7 @@ public class PceManager implements PceService {
         public void process(PacketContext context) {
             // Stop processing if the packet has been handled, since we
             // can't do any more to it.
+            log.debug("Received trigger for label DB sync.");
             if (context.isHandled()) {
                 return;
             }

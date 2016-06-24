@@ -75,6 +75,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.MoreExecutors;
 
 import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.expect;
@@ -146,6 +147,8 @@ public class LldpLinkProviderTest {
         provider.clusterMetadataService = new ClusterMetadataServiceAdapter();
 
         provider.activate(null);
+
+        provider.eventExecutor = MoreExecutors.newDirectExecutorService();
 
         providerService = linkRegistry.registeredProvider();
     }
@@ -655,7 +658,7 @@ public class LldpLinkProviderTest {
 
             Ethernet ethPacket = new Ethernet();
             ethPacket.setEtherType(Ethernet.TYPE_LLDP);
-            ethPacket.setDestinationMACAddress(ONOSLLDP.LLDP_NICIRA);
+            ethPacket.setDestinationMACAddress(ONOSLLDP.LLDP_ONLAB);
             ethPacket.setPayload(lldp);
             ethPacket.setPad(true);
 
