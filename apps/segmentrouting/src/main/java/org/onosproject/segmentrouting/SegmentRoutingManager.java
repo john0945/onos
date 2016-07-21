@@ -177,6 +177,8 @@ public class SegmentRoutingManager implements SegmentRoutingService {
     private final InternalMcastListener mcastListener = new InternalMcastListener();
     private final InternalCordConfigListener cordConfigListener = new InternalCordConfigListener();
 
+    private final FailoverRules failover = new FailoverRules();
+
     private ScheduledExecutorService executorService = Executors
             .newScheduledThreadPool(1);
 
@@ -451,6 +453,11 @@ public class SegmentRoutingManager implements SegmentRoutingService {
             defaultRoutingHandler.populatePortAddressingRules(device.id());
         }
         defaultRoutingHandler.startPopulationProcess();
+    }
+
+    @Override
+    public boolean addFailover() {
+        return failover.addFailover();
     }
 
     /**

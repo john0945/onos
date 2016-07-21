@@ -109,4 +109,6 @@ public interface SegmentRoutingService {
      *
      */
     void rerouteNetwork();
+
+    boolean addFailover();
 }
